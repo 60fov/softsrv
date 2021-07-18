@@ -59,6 +59,7 @@ void platform_start() {
     time_freq = (double)info.numer / (double)info.denom / 1e9;
     time_init = platform_cpu_time();
     
+	if (pool != nil) [pool drain];
     pool = [[NSAutoreleasePool alloc] init];
 
     [NSApplication sharedApplication];
