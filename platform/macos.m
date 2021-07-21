@@ -1,28 +1,26 @@
-#import <stdlib.h>
+#import "platform.h"
+
 #import <stdio.h>
+#import <stdlib.h>
 #import <string.h>
 #import <assert.h>
 #import <mach/mach_time.h>
 #import <Cocoa/Cocoa.h>
 
-typedef struct window window_t;
-typedef struct surface surface_t;
 
-struct surface {
-	int width;
-	int height;
-	unsigned char* buffer;
-};
-struct window {
-    int should_close;
-	surface_t* surface;
-
+struct platform_data {
     NSWindow* handle;
 };
+
+
+
 
 static double time_init = 0;
 static double time_freq = -1;
 static NSAutoreleasePool* pool;
+
+
+
 
 @interface WindowDelegate : NSObject <NSWindowDelegate>
 @end
@@ -63,10 +61,6 @@ static NSAutoreleasePool* pool;
 - (void) drawRect: (NSRect) dirtyRect {
 	surface_t* surf = _window->surface;
 	unsigned char* buff = surf->buffer;
-	int pc = surf->width * surf->height;
-	for(int i = 0; i < pc; i++) {
-		double c = (double) i / (double) pc * 255;
-	}
 	NSBitmapImageRep* rep = [[[NSBitmapImageRep alloc] 
 		initWithBitmapDataPlanes:&buff
 					  pixelsWide:surf->width
@@ -80,11 +74,11 @@ static NSAutoreleasePool* pool;
 					bitsPerPixel:32] autorelease];
 
 	NSImage* image = [[[NSImage alloc] init] autorelease];
-	assert(image != nil);
 	[image addRepresentation:rep];
 	[image drawInRect:dirtyRect];
 }
 @end
+
 
 
 
@@ -96,9 +90,7 @@ double platform_freq() {
     return time_freq;
 }
 
-double platform_time() {
-    return platform_cpu_time() - time_init;
-}
+
 
 void platform_start() {
     mach_timebase_info_data_t info;
@@ -120,33 +112,28 @@ void platform_end() {
     pool = [[NSAutoreleasePool alloc] init];
 }
 
-void poll() {
-    while (1) {
-        NSEvent* event = [NSApp nextEventMatchingMask:NSEventMaskAny
-                                            untilDate:nil
-                                               inMode:NSDefaultRunLoopMode
-                                              dequeue:YES];
-        if (event == nil) break;
-        [NSApp sendEvent:event];
-    }
-    [pool drain];
-    pool = [[NSAutoreleasePool alloc] init];
-}
 
-window_t* window_create(int width, int height) {
-	assert(NSApp && width > 0 && height > 0);
+
+
+window_t* window_create(const char* title, int w, int h) {
+    if (!NSApp) return nil;
+
+    if (w <= 0) w = 600;
+    if (h <= 0) h = 400;
+	
     window_t* window;
     surface_t* surface;
 	
     window = (window_t*) malloc(sizeof(window_t));
-	memset(window, 0, sizeof(window_t));
+    memset(window, 0, sizeof(window_t));
 
 	surface = (surface_t*) malloc(sizeof(surface_t));
-	surface->width = width;
-	surface->height = height;
-	int buf_size = 4 * width * height;
-	surface->buffer = (unsigned char*) malloc(buf_size);
-	memset(surface->buffer, 255, buf_size); 
+	surface->width = w;
+	surface->height = h;
+	int buf_size = 4 * w * h;
+    unsigned char* buffer = (unsigned char*) malloc(buf_size);
+    memset(buffer, 0, buf_size);
+	surface->buffer = buffer;
 	window->surface = surface;
 	
     NSWindow* handle;
@@ -162,22 +149,24 @@ window_t* window_create(int width, int height) {
                                            backing:NSBackingStoreBuffered
                                              defer:NO];
 
-	assert(handle != nil);
-    // [handle setTitle:[NSString stringWithUTF8String:title];
-	[handle setColorSpace:[NSColorSpace genericRGBColorSpace]];
-    window->handle = handle;
-	
     delegate = [[WindowDelegate alloc] initWithWindow:window];
-	assert(delegate != nil);
-    [handle setDelegate:delegate];
 
 	view = [[[ContentView alloc] initWithWindow:window] autorelease];
-	assert(view != nil);
-	[handle setContentView:view];
-	[handle makeFirstResponder:view];
 
+	assert(handle != nil);
+	assert(delegate != nil);
+	assert(view != nil);
+    window->data->handle = handle;
+
+    [handle setDelegate:delegate];
+	[handle setContentView:view];
+    [handle setTitle:[NSString stringWithUTF8String:title];
+	[handle setColorSpace:[NSColorSpace genericRGBColorSpace]];
+    
     [handle center];
-    [handle makeKeyAndOrderFront:nil];
+	[handle makeFirstResponder:view];
+    [handle makeKeyAndOrderFront:nil];	
+
     return window;
 }
 
@@ -188,6 +177,7 @@ void window_destroy(window_t* window) {
 	
 	free(window->surface->buffer);
 	free(window->surface);
+    free(window);
     
     [pool drain];
     pool = [[NSAutoreleasePool alloc] init];
@@ -197,24 +187,24 @@ void window_present(window_t* window) {
 	[[window->handle contentView] setNeedsDisplay:YES];
 }
 
-int window_should_close(window_t* window) {
-    return window->should_close;
-}
 
-surface_t* window_surface(window_t* window) {
-	return window->surface;
-}
 
-/*
-int main(int argc, char** argv) {
-    platform_start();
-    
-    window_t* window = window_create(600, 400);
 
-    while(!window->should_close) {
-        poll();
+void poll() {
+    while (1) {
+        NSEvent* event = [NSApp 
+            nextEventMatchingMask:NSEventMaskAny
+                        untilDate:nil
+                           inMode:NSDefaultRunLoopMode
+                          dequeue:YES];
+
+        if (event == nil) break;
+        [NSApp sendEvent:event];
     }
-
-    platform_end();
+    [pool drain];
+    pool = [[NSAutoreleasePool alloc] init];
 }
-*/
+
+double time() {
+    return platform_cpu_time() - time_init;
+}

@@ -1,7 +1,7 @@
 import math
 
-from sdl2/sdl import nil
-import platform/platform
+import core/platform
+import core/misc
 
 type
   Chrono = object
@@ -9,19 +9,14 @@ type
     dur: float
 
 
-
-
 const Width   {.intdefine.} = 600
 const Height  {.intdefine.} = 400
-
-
-
-var framerate: int
 
 
 var window: ptr Window
 var surface: ptr Surface
 var resolution: float
+var framerate: int
 
 var r_w, r_h: int
 
@@ -32,12 +27,12 @@ var framecount: int
 
 
 proc chrono(dur: float): Chrono =
-  Chrono(start:platform_time(), dur:dur)
+  Chrono(start:time(), dur:dur)
 
 
 # plays ketchup in left alone too long, kinda lame
 template chrono_on_lap(c: Chrono, body: untyped) =
-  if platform_time() - c.start >= c.dur:
+  if time() - c.start >= c.dur:
     body
     c.start += c.dur
 
@@ -55,19 +50,18 @@ proc update(ms: float) =
     echo framecount
     framecount = 0
 
-  var t = platform_time()
+  var t = time()
 
-  sdl.ptrMath:
-    var p = surface.buffer
-    for i in 0..<Width*Height:
-      var r = 1 - i / (Width*Height)
-      var g = (i mod Width) / Width
-      var b = i / (Width*Height)
-      r = mix(smoothstart2, smoothstop2, (sin(t+PI)+1)/2, r)
-      b = mix(smoothstart2, smoothstop2, (sin(t)+1)/2, b)
-      p[i*4+0] = uint8 r * 255
-      p[i*4+1] = uint8 g * 255
-      p[i*4+2] = uint8 b * 255
+  var p = surface.buffer
+  for i in 0..<Width*Height:
+    var r = 1 - i / (Width*Height)
+    var g = (i mod Width) / Width
+    var b = i / (Width*Height)
+    r = mix(smoothstart2, smoothstop2, (sin(t+PI)+1)/2, r)
+    b = mix(smoothstart2, smoothstop2, (sin(t)+1)/2, b)
+    p[i*4+0] = uint8 r * 255
+    p[i*4+1] = uint8 g * 255
+    p[i*4+2] = uint8 b * 255
 
   window_present(window)
 
@@ -88,19 +82,19 @@ when isMainModule:
 
   chr_fps = chrono(1)
 
-  window = window_create(600, 400)
-  surface = window_surface(window)
+  window = window_create("softsrv", 600, 400)
+  surface = window.surface
 
   var ms = if framerate > 0: 1/framerate else: 0
   var now = 0.0
-  var last = platform_time()
+  var last = time()
   var accum = 0.0
   var delta = 0.0
   
-  while window_should_close(window) == 0:
+  while not window_should_close(window):
     poll()
     
-    now = platform_time()
+    now = time()
     delta = now - last
     last = now
 
