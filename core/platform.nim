@@ -1,22 +1,21 @@
 when defined(macosx):
-  {.compile: "macos.m"}
+  {.compile: "platform/macos.m"}
 elif defined(windows):
-  {.compile: "windows.h"}
+  {.compile: "platform/windows.h"}
 elif defined(linux):
-  {.compile: "linux.h"}
+  {.compile: "platform/linux.h"}
 
 
 type
   Surface* = object
-    width*: int
-    height*: int
+    width*: cint
+    height*: cint
     buffer*: ptr uint8
 
   Window* = object
-    title: cstring
-    width: int
-    height: int
-    should_close: int
+    width: cint
+    height: cint
+    should_close: cint
     surface*: ptr Surface
 
     data: pointer
@@ -30,18 +29,18 @@ proc window_destroy*(window: ptr Window) {.importc.}
 proc window_present*(window: ptr Window) {.importc.}
 proc window_should_close*(window: ptr Window): bool = window.should_close != 0
 
-proc time*(): float64 {.importc.}
-proc poll*() {.importc.}
+proc time*(): float64 {.importc: "platform_time".}
+proc poll*() {.importc: "platform_poll".}
 
 
 
 
 when isMainModule:
   platform_start()
-  echo time()
+  echo "time ", time()
   var window = window_create("platform test", 600, 400)
   
-  echo window_should_close(window)
+  assert(window.should_close == 0)
 
   while not window_should_close(window):
     poll()

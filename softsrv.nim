@@ -38,11 +38,7 @@ template chrono_on_lap(c: Chrono, body: untyped) =
 
 
 proc smoothstart2(t: float): float = t * t
-proc smoothstart3(t: float): float = t * t * t
-proc smoothstart4(t: float): float = t * t * t * t
 proc smoothstop2(t: float): float = 1 - smoothstart2(1-t)
-proc smoothstop3(t: float): float = 1 - smoothstart3(1-t)
-proc smoothstop4(t: float): float = 1 - smoothstart4(1-t)
 template mix(a, b: proc(t: float): float, w, t: float): float = (1-w)*a(t) + w*b(t)
 
 proc update(ms: float) =

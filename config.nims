@@ -14,6 +14,12 @@ task osx_run, "build and run for macos":
   switch("define", "release")
   switch("run")
 
+task osx_run_safe, "build and run for macos w/o optimizations":
+  setCommand("objc")
+  switch("passL", "-framework Cocoa")
+  switch("forceBuild")
+  switch("run")
+
 task win_build, "build for windows":
   setCommand("c")
   switch("forceBuild", "on")

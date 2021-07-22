@@ -1,5 +1,3 @@
-#import "platform.h"
-
 #import <stdio.h>
 #import <stdlib.h>
 #import <string.h>
@@ -7,10 +5,12 @@
 #import <mach/mach_time.h>
 #import <Cocoa/Cocoa.h>
 
+#import "platform.h"
 
-struct platform_data {
+
+typedef struct osx_data {
     NSWindow* handle;
-};
+} osx_data;
 
 
 
@@ -26,10 +26,10 @@ static NSAutoreleasePool* pool;
 @end
 
 @implementation WindowDelegate {
-    window_t* _window;
+    Window* _window;
 }
 
-- (instancetype) initWithWindow: (window_t*) window {
+- (instancetype) initWithWindow: (Window*) window {
     self = [super init];
     _window = window;
     return self;
@@ -45,10 +45,10 @@ static NSAutoreleasePool* pool;
 @end
 
 @implementation ContentView {
-	window_t* _window;
+	Window* _window;
 }
 
-- (instancetype) initWithWindow: (window_t*) window {
+- (instancetype) initWithWindow: (Window*) window {
     self = [super init];
     _window = window;
     return self;
@@ -59,7 +59,7 @@ static NSAutoreleasePool* pool;
 }
 
 - (void) drawRect: (NSRect) dirtyRect {
-	surface_t* surf = _window->surface;
+	Surface* surf = _window->surface;
 	unsigned char* buff = surf->buffer;
 	NSBitmapImageRep* rep = [[[NSBitmapImageRep alloc] 
 		initWithBitmapDataPlanes:&buff
@@ -115,31 +115,37 @@ void platform_end() {
 
 
 
-window_t* window_create(const char* title, int w, int h) {
+Window* window_create(const char* title, int w, int h) {
     if (!NSApp) return nil;
 
     if (w <= 0) w = 600;
     if (h <= 0) h = 400;
 	
-    window_t* window;
-    surface_t* surface;
+    Window* window;
+    Surface* surface;
+	osx_data* pdata;
 	
-    window = (window_t*) malloc(sizeof(window_t));
-    memset(window, 0, sizeof(window_t));
+	pdata = malloc(sizeof(osx_data));
 
-	surface = (surface_t*) malloc(sizeof(surface_t));
+	surface = (Surface*) malloc(sizeof(Surface));
 	surface->width = w;
 	surface->height = h;
 	int buf_size = 4 * w * h;
     unsigned char* buffer = (unsigned char*) malloc(buf_size);
     memset(buffer, 0, buf_size);
 	surface->buffer = buffer;
-	window->surface = surface;
 	
+    window = (Window*) malloc(sizeof(Window));
+	window->width = w;
+	window->height = h;
+	window->should_close = 0;
+	window->surface = surface;
+	window->pdata = (void*)pdata;
+
     NSWindow* handle;
     WindowDelegate* delegate;
 	ContentView* view;
-    NSRect rect = NSMakeRect(0, 0, width, height);
+    NSRect rect = NSMakeRect(0, 0, w, h);
     NSUInteger style =  NSWindowStyleMaskTitled |
                         NSWindowStyleMaskMiniaturizable |
                         NSWindowStyleMaskClosable;
@@ -156,11 +162,11 @@ window_t* window_create(const char* title, int w, int h) {
 	assert(handle != nil);
 	assert(delegate != nil);
 	assert(view != nil);
-    window->data->handle = handle;
+    pdata->handle = handle;
 
     [handle setDelegate:delegate];
 	[handle setContentView:view];
-    [handle setTitle:[NSString stringWithUTF8String:title];
+    [handle setTitle:[NSString stringWithUTF8String:title]];
 	[handle setColorSpace:[NSColorSpace genericRGBColorSpace]];
     
     [handle center];
@@ -170,11 +176,13 @@ window_t* window_create(const char* title, int w, int h) {
     return window;
 }
 
-void window_destroy(window_t* window) {
-    [window->handle orderOut: nil];
-    [[window->handle delegate] release];
-    [window->handle close];
+void window_destroy(Window* window) {
+	osx_data* pdata = (osx_data*)window->pdata;
+    [pdata->handle orderOut: nil];
+    [[pdata->handle delegate] release];
+    [pdata->handle close];
 	
+	free(window->pdata);
 	free(window->surface->buffer);
 	free(window->surface);
     free(window);
@@ -183,14 +191,14 @@ void window_destroy(window_t* window) {
     pool = [[NSAutoreleasePool alloc] init];
 }
 
-void window_present(window_t* window) {
-	[[window->handle contentView] setNeedsDisplay:YES];
+void window_present(Window* window) {
+	[[((osx_data*)window->pdata)->handle contentView] setNeedsDisplay:YES];
 }
 
 
 
 
-void poll() {
+void platform_poll() {
     while (1) {
         NSEvent* event = [NSApp 
             nextEventMatchingMask:NSEventMaskAny
@@ -205,6 +213,6 @@ void poll() {
     pool = [[NSAutoreleasePool alloc] init];
 }
 
-double time() {
+double platform_time() {
     return platform_cpu_time() - time_init;
 }
