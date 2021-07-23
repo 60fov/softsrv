@@ -1,20 +1,18 @@
-import math
-
 import core/platform
 import core/chrono
-import core/maths
-import core/misc
+import core/framebuffer
+import core/image
 
 const Width   {.intdefine.} = 600
 const Height  {.intdefine.} = 400
 
 
 var window: ptr Window
+var fb: Framebuffer
 var resolution: float
 var framerate: int
 
-var r_w, r_h: int
-
+var img: Image
 var chr_fps: Chrono
 var framecount: int
 
@@ -26,6 +24,8 @@ proc update(ms: float) =
     framecount = 0
 
   
+  framebuffer_draw_image(fb, img)
+  window_draw_framebuffer(window, fb)
   window_present(window)
 
   inc(framecount)
@@ -40,12 +40,11 @@ when isMainModule:
 
   framerate = 300
   resolution = 1
-  r_w = int WIDTH * resolution
-  r_h = int HEIGHT * resolution
 
   chr_fps = chrono(1)
 
-  window = window_create("softsrv", 600, 400)
+  window = window_create("softsrv", Width, Height)
+  img = image_load("assets/allura.tga")
 
   var ms = if framerate > 0: 1/framerate else: 0
   var now = 0.0

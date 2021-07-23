@@ -5,9 +5,11 @@ elif defined(windows):
 elif defined(linux):
   {.compile: "platform/linux.h"}
 
+import framebuffer
+import misc
 
 type
-  Surface* = object
+  Surface = object
     width*: cint
     height*: cint
     buffer*: ptr uint8
@@ -26,6 +28,15 @@ proc window_create*(title: cstring, width, height: cint): ptr Window {.importc.}
 proc window_destroy*(window: ptr Window) {.importc.}
 proc window_present*(window: ptr Window) {.importc.}
 proc window_should_close*(window: ptr Window): bool = window.should_close != 0
+
+# temporary assumptions
+# window and framebuffer same size, fix "something something sampling idk"
+# both window and framebuffer have 4 color channels
+proc window_draw_framebuffer*(window: ptr Window, fb: Framebuffer) =
+  let size = fb.width * fb.height
+  var buffer = window.surface.buffer
+  for i in 0..<size*4:
+    buffer[i] = fb.color[i]
 
 proc time*(): float64 {.importc: "platform_time".}
 proc poll*() {.importc: "platform_poll".}
