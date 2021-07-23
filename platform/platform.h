@@ -8,8 +8,6 @@ typedef struct Surface {
 } Surface;
 
 typedef struct Window {
-  	int width;
-	int height;
 	int should_close;
 	Surface* surface;
 

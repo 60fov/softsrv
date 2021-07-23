@@ -104,6 +104,7 @@ void platform_start() {
 
     [NSApplication sharedApplication];
 	[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+	[NSApp activateIgnoringOtherApps:YES];
     [NSApp finishLaunching];
 }
 
