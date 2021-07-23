@@ -13,8 +13,6 @@ type
     buffer*: ptr uint8
 
   Window* = object
-    width: cint
-    height: cint
     should_close: cint
     surface*: ptr Surface
 
