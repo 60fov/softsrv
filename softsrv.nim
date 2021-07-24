@@ -2,6 +2,7 @@ import core/platform
 import core/chrono
 import core/framebuffer
 import core/image
+import core/misc
 
 const Width   {.intdefine.} = 600
 const Height  {.intdefine.} = 400
@@ -24,7 +25,10 @@ proc update(ms: float) =
     framecount = 0
 
   
-  framebuffer_draw_image(fb, img)
+  #framebuffer_draw_image(fb, img)
+  var src = Rect[int](x: 100, y: 100, w: 160, h: 260)
+  var dst = Rect[int](x: 140, y: 110, w: 150, h: 100)
+  framebuffer_draw_image(fb, img, src, dst)
   window_draw_framebuffer(window, fb)
   window_present(window)
 
@@ -43,9 +47,9 @@ when isMainModule:
 
   chr_fps = chrono(1)
 
-  window = window_create("softsrv", Width, Height)
-  fb = framebuffer_create(Width, Height)
   img = image_load("assets/allura.ppm")
+  fb = framebuffer_create(Width, Height)
+  window = window_create("softsrv", Width, Height)
 
   var ms = if framerate > 0: 1/framerate else: 0
   var now = 0.0

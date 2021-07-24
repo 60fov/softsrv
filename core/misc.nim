@@ -1,3 +1,8 @@
+type
+  Rect*[T: SomeNumber] = object
+    x*, y*, w*, h*: T
+
+
 template `+`*[T](p: ptr T, off: int): ptr T {.used.} =
   cast[ptr type(p[])](cast[ByteAddress](p) +% off * sizeof(p[]))
 
