@@ -137,8 +137,6 @@ Window* window_create(const char* title, int w, int h) {
 	surface->buffer = buffer;
 	
     window = (Window*) malloc(sizeof(Window));
-	window->width = w;
-	window->height = h;
 	window->should_close = 0;
 	window->surface = surface;
 	window->pdata = (void*)pdata;

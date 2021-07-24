@@ -44,7 +44,8 @@ when isMainModule:
   chr_fps = chrono(1)
 
   window = window_create("softsrv", Width, Height)
-  img = image_load("assets/allura.tga")
+  fb = framebuffer_create(Width, Height)
+  img = image_load("assets/allura.ppm")
 
   var ms = if framerate > 0: 1/framerate else: 0
   var now = 0.0
