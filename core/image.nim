@@ -78,21 +78,18 @@ proc image_load_ppm*(filepath: string): Image =
     i += 1
 
   #var maxval = parseInt(str)
-  var pixel_buffer = create(uint8, w*h*3)
+  var pixel_buffer = create(uint8, w*h*4)
 
   while byte_is_whitespace(data[i]): i += 1
   
   var t = 0
   for y in 0..<h:
     for x in 0..<w:
-      var pi = (x+y*w)*3
-      var r = data[i+0]
-      var g = data[i+1]
-      var b = data[i+2]
-      pixel_buffer[pi+0] = r
-      pixel_buffer[pi+1] = g
-      pixel_buffer[pi+2] = b
-      i += 3
+      var pi = (x+y*w)*4
+      pixel_buffer[pi+3]= 255
+      for ci in 0..<3:
+        pixel_buffer[pi+ci] = data[i]
+        i += 1
 
   echo t
   result.width = w

@@ -20,25 +20,20 @@ proc framebuffer_destroy*(fb: Framebuffer) =
 proc width*(fb: Framebuffer): int = fb.width
 proc height*(fb: Framebuffer): int = fb.height
 
-proc framebuffer_draw_image*(fb: Framebuffer, img: Image) =
-  for y in 0..<fb.height:
-    if y > img.height: continue
-    for x in 0..<fb.width:
-      if x > img.width: continue
-      var pi = (x+y*fb.width)*4
-      var ii = (x+y*img.width)*3
-      fb.color[pi+0] = img.buffer[ii+0]
-      fb.color[pi+1] = img.buffer[ii+1]
-      fb.color[pi+2] = img.buffer[ii+2]
+
+proc framebuffer_draw_image*(fb: Framebuffer, img: Image, src=Rect[int](), dst=Rect[int]())
+
+
+
 
 # bounding boxes might be better
 proc framebuffer_draw_image*(fb: Framebuffer, img: Image, src, dst: Rect[int]) =
+  var src_x = (if src.x > 0 and src.x < img.width: src.x else: 0)
+  var src_y = (if src.y > 0 and src.y < img.height: src.y else: 0)
   var src_w = (if src.w > 0 and src.w < img.width: src.w else: img.width)
   var src_h = (if src.h > 0 and src.h < img.height: src.h else: img.height)
-  var src_x = (if src.x > 0 and src.x < src_w: src.y else: 0)
-  var src_y = (if src.y > 0 and src.y < src_h: src.y else: 0)
-  src_w -= src_x
-  src_h -= src_y
+  if src_w + src_x > img.width: src_w = img.width - src_x
+  if src_h + src_y > img.height: src_h = img.height - src_y
   var dst_w = (if dst.w > 0: dst.w else: src_w)
   var dst_h = (if dst.h > 0: dst.h else: src_h)
   var sx = src_w / dst_w
@@ -59,7 +54,7 @@ proc framebuffer_draw_image*(fb: Framebuffer, img: Image, src, dst: Rect[int]) =
       var ix = src_x + int px.float * sx
 
       var di = (dx + dy * fb.width) * 4
-      var si = (ix + iy * img.width) * 3
+      var si = (ix + iy * img.width) * 4
 
       for i in 0..<3:
         fb.color[di+i] = img.buffer[si+i]

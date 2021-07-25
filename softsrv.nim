@@ -25,10 +25,12 @@ proc update(ms: float) =
     framecount = 0
 
   
-  #framebuffer_draw_image(fb, img)
-  var src = Rect[int](x: 100, y: 100, w: 160, h: 260)
-  var dst = Rect[int](x: 140, y: 110, w: 150, h: 100)
+  framebuffer_draw_image(fb, img, dst=rect(200, 50))
+
+  var src = Rect[int](x: 80, y: 115, w: 75, h: 100)
+  var dst = Rect[int](x: 110, y: 240, w: 120, h: 90)
   framebuffer_draw_image(fb, img, src, dst)
+
   window_draw_framebuffer(window, fb)
   window_present(window)
 
