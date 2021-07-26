@@ -1,23 +1,18 @@
-#include "platform.h"
-
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
 #include <windows.h>
 
+#include "platform.h"
 
-struct platform_data {
+typedef struct {
         HWND handle;
-};
+} WinData;
 
-const char* WINDOW_CLASS_NAME = "MAIN WINDOW CLASS";
-const char* WINDOW_PROP_NAME = "WIN_PROP";
+const char* WINDOW_CLASS_NAME = "SOFTSRV_WC";
 
-WNDCLASSEX wc;
-
-
-
+WNDCLASSEX window_class;
 
 LRESULT CALLBACK WindowMsgProc(
     HWND   hwnd,
@@ -25,60 +20,50 @@ LRESULT CALLBACK WindowMsgProc(
     WPARAM wParam,
     LPARAM lParam
 ) {
-    window_t* window = (window_t*) GetProp(hwnd, WINDOW_PROP_NAME);
+    LRESULT result = 0;
+
     switch(msg) {
-        case WM_CLOSE:
-            window->should_close = 1;
-            return 0;
-        default:
-            return DefWindowProc(hwnd, msg, wParam, lParam);
+        case WM_CLOSE: {
+            m_quit = 1;
+        } break;
+        // case WM_PAINT: {} break;
+        default: {
+
+            result = DefWindowProc(hwnd, msg, wParam, lParam);
+        } break;
     }
+    return result;
 }
 
 
 
-void platform_start() {
-    wc.cbSize         = sizeof(WNDCLASSEX);
-    wc.style          = CS_HREDRAW | CS_VREDRAW;  
-    wc.lpfnWndProc    = WindowMsgProc;
-    wc.cbClsExtra     = 0;
-    wc.cbWndExtra     = 0;
-    wc.hInstance      = GetModuleHandle(NULL);
-    wc.hIcon          = LoadIcon(NULL, IDI_APPLICATION);
-    wc.hCursor        = LoadCursor(NULL, IDC_ARROW);
-    wc.hbrBackground  = (HBRUSH)(COLOR_WINDOW+1);
-    wc.lpszMenuName   = NULL;
-    wc.lpszClassName  = WINDOW_CLASS_NAME;
-    wc.hIconSm        = LoadIcon(NULL, IDI_APPLICATION);
+void platform_init(const char* title, int w, int h) {
+    window_class.cbSize         = sizeof(WNDCLASSEX);
+    window_class.style          = CS_HREDRAW | CS_VREDRAW; 
+    window_class.hInstance      = GetModuleHandle(NULL);
+    window_class.hCursor        = LoadCursor(NULL, IDC_ARROW);
+    window_class.lpfnWndProc    = WindowMsgProc;
+    window_class.lpszClassName  = WINDOW_CLASS_NAME;
+    // window_class.cbClsExtra     = 0;
+    // window_class.cbWndExtra     = 0;
+    // window_class.hIcon          = LoadIcon(NULL, IDI_APPLICATION);
+    // window_class.hIconSm        = LoadIcon(NULL, IDI_APPLICATION);
 
-    assert(RegisterClassEx(&wc));
-}
+    assert(RegisterClassEx(&window_class));
 
-void platform_end() {
-    UnregisterClass(WINDOW_CLASS_NAME, GetModuleHandle(NULL));
-}
-
-
-
-window_t* window_create(const char* title, int w, int h) {
     if (w <= 0) w = 600;
     if (h <= 0) h = 400;
 
-    window_t* window;
-    surface_t* surface;
-
-    window = (window_t*) malloc(sizeof(window_t));
-    memset(window, 0, sizeof(window_t));
-
-    surface = (surface_t*) malloc(sizeof(surface_t));
-    surface->width = w;
-    surface->height = h;
-    int buf_size = 4 * w * h;
-    unsigned char* buffer = (unsigned char*) malloc(buf_size);
-    memset(buffer, 0, buf_size);
-    surface->buffer = buffer;
-    window->surface = surface;
-
+    m_quit = 0;
+    m_window.width = w;
+    m_window.height = h;
+    
+    m_window.pdata = malloc(sizeof(WinData));
+    memset(m_window.pdata, 0, sizeof(WinData));
+    
+    int buffer_size = w*h*4;
+    m_window.buffer = (unsigned char*) malloc(buffer_size);
+    memset(m_window.buffer, 0, buffer_size);
 
     HWND handle;
 
@@ -91,31 +76,28 @@ window_t* window_create(const char* title, int w, int h) {
         w, h,
         NULL, NULL, GetModuleHandle(NULL), NULL);
 
-    assert(handle != NULL);
-    window->data->handle = handle;
-    printf("hello");
+    assert(handle);
+    ((WinData*)m_window.pdata)->handle = handle;
 
-    SetProp(handle, WINDOW_PROP_NAME, window);
     ShowWindow(handle, SW_SHOW);
-    
-    return window;
 }
 
-void window_destroy(window_t* window) {
-    HWND handle = window->data->handle;
+void platform_destroy() {
+    HWND handle = ((WinData*)m_window.pdata)->handle;
     ShowWindow(handle, SW_HIDE);
-    RemoveProp(handle, WINDOW_PROP_NAME);
 
     DestroyWindow(handle);
 
-    free(window->surface->buffer);
-    free(window->surface);
-    free(window);
+    free(m_window.buffer);
+    free(m_window.pdata);
+
+    UnregisterClass(WINDOW_CLASS_NAME, GetModuleHandle(NULL));
 }
 
-void window_present(window_t* window);
 
-void poll() {
+
+
+void platform_poll() {
     MSG msg;
     while(PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
                 TranslateMessage(&msg);
@@ -123,24 +105,19 @@ void poll() {
     }
 }
 
-double time() {
+double platform_time() {
     return 0.0;
 }
 
 
-int main() {
-    platform_start();
+// int main() {
+//     platform_init("win test", 600, 400);
 
 
-    window_t* window = window_create("win test", 600, 400);
+//     while (m_quit == 0) {
+//         platform_poll();
+//     }
 
-    printf("hello %d", 5);
-    while (window->should_close == 0) {
-        poll();
-    }
-
-    window_destroy(window);
-
-    platform_end();
-    return 0;
-}
+//     platform_destroy();
+//     return 0;
+// }

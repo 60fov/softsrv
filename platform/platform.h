@@ -1,28 +1,25 @@
 #ifndef PLATFORM_H
 #define PLATFORM_H
 
-typedef struct Surface {
-	int width;
-	int height;
-	unsigned char* buffer;
-} Surface;
-
-typedef struct Window {
-	int should_close;
-	Surface* surface;
-
+typedef struct {
+    struct {
+        int width;
+        int height;
+        unsigned char* buffer;
+    };
 	void* pdata;
 } Window;
 
+Window m_window;
+int m_quit;
 
-void platform_start();
-void platform_end();
-
-Window* window_create(const char* title, int w, int h);
-void window_destroy(Window* window);
-void window_present(Window* window);
-
+void platform_init();
+void platform_destroy();
 void platform_poll();
+
+Window* platform_window();
+void platform_window_present();
+
 double platform_time();
 
 #endif
