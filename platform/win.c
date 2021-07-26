@@ -8,9 +8,12 @@
 
 typedef struct {
         HWND handle;
+        BITMAPINFO info;
 } WinData;
 
 const char* WINDOW_CLASS_NAME = "SOFTSRV_WC";
+static double time_init = 0;
+static double time_freq = -1;
 
 WNDCLASSEX window_class;
 
@@ -21,12 +24,20 @@ LRESULT CALLBACK WindowMsgProc(
     LPARAM lParam
 ) {
     LRESULT result = 0;
+    WinData* win_data = (WinData*) m_window.pdata;
 
     switch(msg) {
         case WM_CLOSE: {
             m_quit = 1;
         } break;
-        // case WM_PAINT: {} break;
+        // case WM_PAINT: {
+        //     PAINTSTRUCT paint;
+        //     HDC pdc = BeginPaint(win_data->handle, &paint);
+        //     int width = paint.rcPaint.right - paint.rcPaint.left;
+        //     int height = paint.rcPaint.bottom - paint.rcPaint.top;
+
+        //     EndPaint(win_data->handle, &paint);
+        // } break;
         default: {
 
             result = DefWindowProc(hwnd, msg, wParam, lParam);
@@ -36,8 +47,31 @@ LRESULT CALLBACK WindowMsgProc(
 }
 
 
+double platform_cpu_time() {
+    LARGE_INTEGER counter;
+    QueryPerformanceCounter(&counter);
+    return counter.QuadPart * time_freq;
+}
+
+double platform_freq() {
+    return time_freq;
+}
+
+double platform_time() {
+    return platform_cpu_time() - time_init;
+}
+
+
 
 void platform_init(const char* title, int w, int h) {
+    // init time system
+    LARGE_INTEGER freq;
+    QueryPerformanceFrequency(&freq);
+    
+    time_freq = 1 / (double) freq.QuadPart;
+    time_init = platform_cpu_time();
+
+
     window_class.cbSize         = sizeof(WNDCLASSEX);
     window_class.style          = CS_HREDRAW | CS_VREDRAW; 
     window_class.hInstance      = GetModuleHandle(NULL);
@@ -58,8 +92,9 @@ void platform_init(const char* title, int w, int h) {
     m_window.width = w;
     m_window.height = h;
     
-    m_window.pdata = malloc(sizeof(WinData));
-    memset(m_window.pdata, 0, sizeof(WinData));
+    WinData* win_data = malloc(sizeof(WinData));
+    memset(win_data, 0, sizeof(WinData));
+    m_window.pdata = win_data;
     
     int buffer_size = w*h*4;
     m_window.buffer = (unsigned char*) malloc(buffer_size);
@@ -67,17 +102,31 @@ void platform_init(const char* title, int w, int h) {
 
     HWND handle;
 
+    RECT client_rect = {0, 0, w, h};
+    AdjustWindowRect(&client_rect, WS_OVERLAPPEDWINDOW, 0);
+    int cw = client_rect.right - client_rect.left;
+    int ch = client_rect.bottom - client_rect.top;
     handle = CreateWindowEx(
         0,
         WINDOW_CLASS_NAME,
         title,
         WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, CW_USEDEFAULT,
-        w, h,
-        NULL, NULL, GetModuleHandle(NULL), NULL);
+        cw, ch,
+        0, 0, GetModuleHandle(0), 0);
 
     assert(handle);
-    ((WinData*)m_window.pdata)->handle = handle;
+
+    BITMAPINFO info;
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = w;
+    info.bmiHeader.biHeight = -h;
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+
+    win_data->handle = handle;
+    win_data->info = info;
 
     ShowWindow(handle, SW_SHOW);
 }
@@ -95,7 +144,20 @@ void platform_destroy() {
 }
 
 
-
+void platform_present() {
+    WinData* win_data = ((WinData*)m_window.pdata);
+    HDC dc = GetDC(win_data->handle);
+    SetDIBitsToDevice(
+            dc, 
+            0, 0, // dst xy
+            m_window.width, m_window.height,
+            0, 0, // src xy
+            0, m_window.height, // starting / total scanlines
+            m_window.buffer,
+            &(win_data->info),
+            DIB_RGB_COLORS);
+    ReleaseDC(win_data->handle, dc);
+}
 
 void platform_poll() {
     MSG msg;
@@ -105,19 +167,4 @@ void platform_poll() {
     }
 }
 
-double platform_time() {
-    return 0.0;
-}
 
-
-// int main() {
-//     platform_init("win test", 600, 400);
-
-
-//     while (m_quit == 0) {
-//         platform_poll();
-//     }
-
-//     platform_destroy();
-//     return 0;
-// }

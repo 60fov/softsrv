@@ -22,11 +22,13 @@ task osx_run_safe, "build and run for macos w/o optimizations":
 
 task win_build, "build for windows":
   setCommand("c")
+  switch("passL", "-lgdi32")
   switch("forceBuild", "on")
   switch("define", "release")
 
 task win_run, "build and run for windows":
   setCommand("c")
+  switch("passL", "-lgdi32")
   switch("forceBuild", "on")
   switch("define", "release")
   switch("run")

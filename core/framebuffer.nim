@@ -1,3 +1,6 @@
+import image
+import misc
+
 type
   Framebuffer* = object
     width: int
@@ -16,3 +19,33 @@ proc framebuffer_destroy*(fb: Framebuffer) =
 
 proc width*(fb: Framebuffer): int = fb.width
 proc height*(fb: Framebuffer): int = fb.height
+
+
+proc framebuffer_blit_rgb*(fb: Framebuffer, bitmap: Bitmap) = 
+    let size = fb.width * fb.height
+    var buffer = bitmap.buffer
+    for i in 0..<size*4:
+        buffer[i] = fb.color[i]
+
+
+proc framebuffer_blit_bgr*(fb: Framebuffer, bitmap: Bitmap) =
+    let size = fb.width * fb.height
+    var buffer = bitmap.buffer
+    for i in 0..<size:
+        for j in 0..<3:
+            buffer[i*4+j] = fb.color[i*4+(2-j)]
+
+
+proc framebuffer_blit_rgb*(fb: Framebuffer, bitmap: ptr Bitmap) = 
+    let size = fb.width * fb.height
+    var buffer = bitmap.buffer
+    for i in 0..<size*4:
+        buffer[i] = fb.color[i]
+
+
+proc framebuffer_blit_bgr*(fb: Framebuffer, bitmap: ptr Bitmap) =
+    let size = fb.width * fb.height
+    var buffer = bitmap.buffer
+    for i in 0..<size:
+        for j in 0..<3:
+            buffer[i*4+j] = fb.color[i*4+(2-j)]

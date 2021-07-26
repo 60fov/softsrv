@@ -5,7 +5,7 @@ import misc
 
 
 proc d_line*(fb: Framebuffer, ax, ay, bx, by: int, r, g, b: uint8)
-proc d_image*(fb: Framebuffer, img: Image, src=Rect[int](), dst=Rect[int]())
+proc d_image*(fb: Framebuffer, img: Bitmap, src=Rect[int](), dst=Rect[int]())
 
 
 
@@ -39,7 +39,7 @@ proc d_line*(fb: Framebuffer, ax, ay, bx, by: int, r, g, b: uint8) =
           s_err -= 0.5
           x += s
     else:
-      echo y0, " ", y1
+    #   echo y0, " ", y1
       var y = y1
       while y <= y0:
         fb.color[(x.int+y*fb.width)*4+0] = r
@@ -55,7 +55,7 @@ proc d_line*(fb: Framebuffer, ax, ay, bx, by: int, r, g, b: uint8) =
 
   
 # bounding boxes might be better
-proc d_image*(fb: Framebuffer, img: Image, src, dst: Rect[int]) =
+proc d_image*(fb: Framebuffer, img: Bitmap, src, dst: Rect[int]) =
   var src_x = (if src.x > 0 and src.x < img.width: src.x else: 0)
   var src_y = (if src.y > 0 and src.y < img.height: src.y else: 0)
   var src_w = (if src.w > 0 and src.w < img.width: src.w else: img.width)

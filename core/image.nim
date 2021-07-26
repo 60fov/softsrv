@@ -4,22 +4,20 @@ import os
 import misc
 
 type
-  Image* = object
-    width*: int
-    height*: int
+  Bitmap* = object
+    width*: int32
+    height*: int32
     buffer*: ptr uint8
 
 const BufferReadSize = 4096
 
-proc byte_is_whitespace(b: uint8): bool =
-  b >= 9 and b <= 13 or b == 32
 
-proc image_load*(filepath: string): Image
-proc image_load_tga*(filepath: string): Image
-proc image_load_ppm*(filepath: string): Image
-proc image_load_bmp*(filepath: string): Image
+proc image_load*(filepath: string): Bitmap
+proc image_load_tga*(filepath: string): Bitmap
+proc image_load_ppm*(filepath: string): Bitmap
+proc image_load_bmp*(filepath: string): Bitmap
 
-proc image_load*(filepath: string): Image =
+proc image_load*(filepath: string): Bitmap =
   var split_file = splitFile(filepath)
   case split_file.ext:
     of ".tga": image_load_tga(filepath)
@@ -27,8 +25,8 @@ proc image_load*(filepath: string): Image =
     of ".bmp": image_load_bmp(filepath)
     else: result 
 
-proc image_load_tga*(filepath: string): Image = discard
-proc image_load_ppm*(filepath: string): Image =
+proc image_load_tga*(filepath: string): Bitmap = discard
+proc image_load_ppm*(filepath: string): Bitmap =
   echo "loading ppm file: ", filepath
   var file: File
   if not open(file, filepath):
@@ -92,13 +90,13 @@ proc image_load_ppm*(filepath: string): Image =
         i += 1
 
   echo t
-  result.width = w
-  result.height = h
+  result.width = w.int32
+  result.height = h.int32
   result.buffer = pixel_buffer
 
   
 
-proc image_load_bmp*(filepath: string): Image = discard
+proc image_load_bmp*(filepath: string): Bitmap = discard
 
 
 

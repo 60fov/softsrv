@@ -9,12 +9,11 @@ const Width   {.intdefine.} = 600
 const Height  {.intdefine.} = 400
 
 
-var window: ptr Window
 var fb: Framebuffer
 var resolution: float
 var framerate: int
 
-var img: Image
+var img: Bitmap
 var chr_fps: Chrono
 var framecount: int
 

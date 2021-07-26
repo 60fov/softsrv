@@ -8,6 +8,7 @@ elif defined(linux):
     {.compile: "platform"/"linux.h"}
 
 import framebuffer
+import image
 import misc
 
 type
@@ -33,10 +34,11 @@ proc poll*() {.importc: "platform_poll".}
 # window and framebuffer same size, fix "something something sampling idk"
 # both window and framebuffer have 4 color channels
 proc present_framebuffer*(fb: Framebuffer) =
-    let size = fb.width * fb.height
-    var buffer = m_window.buffer
-    for i in 0..<size*4:
-        buffer[i] = fb.color[i]
+    var map = cast[ptr Bitmap](addr m_window)
+    when defined(macos): 
+        framebuffer_blit_rgb(fb, map)
+    elif defined(windows):
+        framebuffer_blit_bgr(fb, map)
 
     present()
 
