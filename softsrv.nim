@@ -2,6 +2,7 @@ import core/platform
 import core/chrono
 import core/framebuffer
 import core/image
+import core/draw
 import core/misc
 
 const Width   {.intdefine.} = 600
@@ -25,14 +26,25 @@ proc update(ms: float) =
     framecount = 0
 
   
-  framebuffer_draw_image(fb, img, dst=rect(200, 50))
+  d_image(fb, img, dst=rect(200, 50))
 
   var src = Rect[int](x: 80, y: 115, w: 75, h: 100)
   var dst = Rect[int](x: 110, y: 240, w: 120, h: 90)
-  framebuffer_draw_image(fb, img, src, dst)
+  d_image(fb, img, src, dst)
+  
+  var x = 100
+  var y = 110
+  d_line(fb, x, y, x+50, y+100, 255, 000, 126) # pink
+  d_line(fb, x, y, x-50, y-100, 126, 000, 255) # violet 
 
-  window_draw_framebuffer(window, fb)
-  window_present(window)
+  d_line(fb, x, y, x+100, y-50, 255, 000, 000) # red
+  d_line(fb, x, y, x-100, y+50, 255, 255, 000) # yellow
+
+  d_line(fb, x, y, x+100, y+50, 000, 255, 255) # cyan
+  d_line(fb, x, y, x-50, y+100, 000, 000, 255) # blue
+  d_line(fb, x, y, x+50, y-100, 000, 255, 000) # green
+
+  present_framebuffer(fb)
 
   inc(framecount)
   
@@ -42,7 +54,7 @@ proc update(ms: float) =
 
 
 when isMainModule:
-  platform_start()
+  platform_init("softsrv", Width, Height)
 
   framerate = 300
   resolution = 1
@@ -51,7 +63,6 @@ when isMainModule:
 
   img = image_load("assets/allura.ppm")
   fb = framebuffer_create(Width, Height)
-  window = window_create("softsrv", Width, Height)
 
   var ms = if framerate > 0: 1/framerate else: 0
   var now = 0.0
@@ -59,7 +70,7 @@ when isMainModule:
   var accum = 0.0
   var delta = 0.0
   
-  while not window_should_close(window):
+  while not should_quit():
     poll()
     
     now = time()
@@ -72,4 +83,4 @@ when isMainModule:
       accum -= ms
 
 
-  window_destroy(window)
+  platform_destroy()
