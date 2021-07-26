@@ -17,8 +17,7 @@ void platform_init();
 void platform_destroy();
 void platform_poll();
 
-Window* platform_window();
-void platform_window_present();
+void platform_present();
 
 double platform_time();
 

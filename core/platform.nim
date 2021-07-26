@@ -24,6 +24,7 @@ var m_quit {.importc.}: cint
 proc platform_init*(title: cstring, width, height: cint) {.importc.}
 proc platform_destroy*() {.importc.}
 
+proc present*() {.importc: "platform_present".}
 proc time*(): float64 {.importc: "platform_time".}
 proc poll*() {.importc: "platform_poll".}
 
@@ -36,6 +37,8 @@ proc present_framebuffer*(fb: Framebuffer) =
     var buffer = m_window.buffer
     for i in 0..<size*4:
         buffer[i] = fb.color[i]
+
+    present()
 
 
 proc should_quit*(): bool = m_quit != 0

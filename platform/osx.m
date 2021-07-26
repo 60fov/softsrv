@@ -64,6 +64,17 @@ static NSAutoreleasePool* pool;
 
 
 
+double platform_cpu_time() {
+    return mach_absolute_time() * time_freq;
+}
+
+double platform_freq() {
+    return time_freq;
+}
+
+double platform_time() {
+    return platform_cpu_time() - time_init;
+}
 
 
 void platform_init(const char* title, int w, int h) {
@@ -132,20 +143,20 @@ void platform_init(const char* title, int w, int h) {
 }
 
 void platform_destroy() {
-	OsxData* handle = ((OsxData*)window.pdata)->handle;
+	NSWindow* handle = ((OsxData*)m_window.pdata)->handle;
     [handle orderOut: nil];
     [[handle delegate] release];
     [handle close];
 	
-	free(window.buffer);
-	free(window.pdata);
+	free(m_window.buffer);
+	free(m_window.pdata);
     
     [pool drain];
     pool = [[NSAutoreleasePool alloc] init];
 }
 
 
-void present() {
+void platform_present() {
 	[[((OsxData*)m_window.pdata)->handle contentView] setNeedsDisplay:YES];
 }
 
@@ -165,16 +176,3 @@ void platform_poll() {
     pool = [[NSAutoreleasePool alloc] init];
 }
 
-
-
-double platform_cpu_time() {
-    return mach_absolute_time() * time_freq;
-}
-
-double platform_freq() {
-    return time_freq;
-}
-
-double platform_time() {
-    return platform_cpu_time() - time_init;
-}
