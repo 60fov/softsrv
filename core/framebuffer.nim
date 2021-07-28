@@ -20,6 +20,10 @@ proc framebuffer_destroy*(fb: Framebuffer) =
 proc width*(fb: Framebuffer): int = fb.width
 proc height*(fb: Framebuffer): int = fb.height
 
+proc framebuffer_clear*(fb: Framebuffer) =
+    let size = fb.width * fb.height
+    for i in 0..<size*4:
+      fb.color[i] = 0
 
 proc framebuffer_blit_rgb*(fb: Framebuffer, bitmap: Bitmap) =
     let size = fb.width * fb.height
