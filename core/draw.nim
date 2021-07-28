@@ -4,12 +4,17 @@ import misc
 
 
 
-proc d_line*(fb: Framebuffer, ax, ay, bx, by: int, r, g, b: uint8)
-proc d_image*(fb: Framebuffer, img: Bitmap, src=Rect[int](), dst=Rect[int]())
+proc d_pixel*(fb: var Framebuffer, x, y: int, r, g, b: uint8)
+proc d_line*(fb: var Framebuffer, ax, ay, bx, by: int, r, g, b: uint8)
+proc d_image*(fb: var Framebuffer, img: Bitmap, src=Rect[int](), dst=Rect[int]())
 
+proc d_pixel*(fb: var Framebuffer, x, y: int, r, g, b: uint8) =
+  var pi = (x + y * fb.width) * 4
+  fb.color[pi + 0] = r
+  fb.color[pi + 1] = g
+  fb.color[pi + 2] = b
 
-
-proc d_line*(fb: Framebuffer, ax, ay, bx, by: int, r, g, b: uint8) =
+proc d_line*(fb: var Framebuffer, ax, ay, bx, by: int, r, g, b: uint8) =
   var x0 = ax
   var y0 = ay
   var x1 = bx
@@ -34,10 +39,7 @@ proc d_line*(fb: Framebuffer, ax, ay, bx, by: int, r, g, b: uint8) =
     d_err = abs(delta)
     var x = x0
     for y in y0..y1:
-      var pi = x + y * fb.width
-      fb.color[pi * 4 + 0] = r
-      fb.color[pi * 4 + 1] = g
-      fb.color[pi * 4 + 2] = b
+      d_pixel(fb, x, y, r, g, b)
       err += d_err
       if err > 0.5:
         err -= 1
@@ -50,10 +52,7 @@ proc d_line*(fb: Framebuffer, ax, ay, bx, by: int, r, g, b: uint8) =
     var i = 0
     while i < abs(dx):
       i += 1
-      var pi = x + y * fb.width
-      fb.color[pi * 4 + 0] = r
-      fb.color[pi * 4 + 1] = g
-      fb.color[pi * 4 + 2] = b
+      d_pixel(fb, x, y, r, g, b)
       x += d
       err += d_err
       if err > 0.5:
@@ -66,7 +65,7 @@ proc d_line*(fb: Framebuffer, ax, ay, bx, by: int, r, g, b: uint8) =
 
   
 # bounding boxes might be better
-proc d_image*(fb: Framebuffer, img: Bitmap, src, dst: Rect[int]) =
+proc d_image*(fb: var Framebuffer, img: Bitmap, src, dst: Rect[int]) =
   var src_x = (if src.x > 0 and src.x < img.width: src.x else: 0)
   var src_y = (if src.y > 0 and src.y < img.height: src.y else: 0)
   var src_w = (if src.w > 0 and src.w < img.width: src.w else: img.width)

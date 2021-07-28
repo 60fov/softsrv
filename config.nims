@@ -20,6 +20,15 @@ task osx_run_safe, "build and run for macos w/o optimizations":
   switch("forceBuild")
   switch("run")
 
+task osx_profile, "build and run profile":
+  setCommand("objc")
+  switch("passL", "-framework Cocoa")
+  switch("forceBuild")
+  switch("profiler", "on")
+  switch("stacktrace", "on")
+  switch("run")
+  
+
 task win_build, "build for windows":
   setCommand("c")
   switch("passL", "-lgdi32")

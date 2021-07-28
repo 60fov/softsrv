@@ -17,3 +17,7 @@ template chrono_on_lap*(c: Chrono, body: untyped) =
     body
     c.start += c.dur
 
+template chrono_time*(t: var float, body: untyped) =
+  t = time()
+  body
+  t = time() - t
