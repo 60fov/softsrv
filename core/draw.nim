@@ -22,7 +22,7 @@ proc d_line*(fb: Framebuffer, ax, ay, bx, by: int, r, g, b: uint8) =
   var dx = x1 - x0
   var dy = y1 - y0
 
-  var err = 0.5
+  var err = 0.0
   var delta = 0.0 
   var d_err = 0.0 
   var d = if x1 > x0: 1 else: -1
