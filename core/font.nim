@@ -45,7 +45,7 @@ proc font_load_bdf*(filepath: string): BitmapFont =
     case str:
       of "FONT":
         var name = byte_buffer_read_word(addr data, i)
-        echo "font: ", name
+        # echo "font: ", name
       of "FONTBOUNDINGBOX":
         var w = parseInt(byte_buffer_read_word(addr data, i))
         var h = parseInt(byte_buffer_read_word(addr data, i))
@@ -57,7 +57,7 @@ proc font_load_bdf*(filepath: string): BitmapFont =
         bitmap.buffer = create(uint8, bitmap.width * bitmap.height * 4)
       of "CHARS":
         var chars = parseInt(byte_buffer_read_word(addr data, i))
-        echo "chars: ", chars
+        # echo "chars: ", chars
       of "STARTCHAR":
         discard byte_buffer_read_word(addr data, i)
         

@@ -89,7 +89,6 @@ proc image_load_ppm*(filepath: string): Bitmap =
         pixel_buffer[pi+ci] = data[i]
         i += 1
 
-  echo t
   result.width = w.int32
   result.height = h.int32
   result.buffer = pixel_buffer

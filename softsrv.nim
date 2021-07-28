@@ -23,7 +23,7 @@ var fnt: BitmapFont
 
 proc update(ms: float) =
   chrono_on_lap(chr_fps):
-    echo framecount
+    echo "fc: ", framecount
     framecount = 0
 
   
@@ -66,7 +66,7 @@ when isMainModule:
 
   fb = framebuffer_create(Width, Height)
   img = image_load("assets/allura.ppm")
-  fnt = font_load_bdf("assets/fonts/creep.bdf")
+  fnt = font_load_bdf("assets/fonts/cure.bdf")
 
   var ms = if framerate > 0: 1/framerate else: 0
   var now = 0.0
