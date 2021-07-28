@@ -21,7 +21,7 @@ proc width*(fb: Framebuffer): int = fb.width
 proc height*(fb: Framebuffer): int = fb.height
 
 
-proc framebuffer_blit_rgb*(fb: Framebuffer, bitmap: Bitmap) = 
+proc framebuffer_blit_rgb*(fb: Framebuffer, bitmap: Bitmap) =
     let size = fb.width * fb.height
     var buffer = bitmap.buffer
     for i in 0..<size*4:
@@ -36,7 +36,7 @@ proc framebuffer_blit_bgr*(fb: Framebuffer, bitmap: Bitmap) =
             buffer[i*4+j] = fb.color[i*4+(2-j)]
 
 
-proc framebuffer_blit_rgb*(fb: Framebuffer, bitmap: ptr Bitmap) = 
+proc framebuffer_blit_rgb*(fb: Framebuffer, bitmap: ptr Bitmap) =
     let size = fb.width * fb.height
     var buffer = bitmap.buffer
     for i in 0..<size*4:

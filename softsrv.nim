@@ -3,6 +3,7 @@ import core/chrono
 import core/framebuffer
 import core/image
 import core/draw
+import core/font
 import core/misc
 
 const Width   {.intdefine.} = 600
@@ -13,11 +14,12 @@ var fb: Framebuffer
 var resolution: float
 var framerate: int
 
-var img: Bitmap
 var chr_fps: Chrono
 var framecount: int
 
 
+var img: Bitmap
+var fnt: BitmapFont
 
 proc update(ms: float) =
   chrono_on_lap(chr_fps):
@@ -30,6 +32,8 @@ proc update(ms: float) =
   var src = Rect[int](x: 80, y: 115, w: 75, h: 100)
   var dst = Rect[int](x: 110, y: 240, w: 120, h: 90)
   d_image(fb, img, src, dst)
+
+  d_image(fb, fnt.bitmap)
   
   var x = 100
   var y = 110
@@ -60,8 +64,9 @@ when isMainModule:
 
   chr_fps = chrono(1)
 
-  img = image_load("assets/allura.ppm")
   fb = framebuffer_create(Width, Height)
+  img = image_load("assets/allura.ppm")
+  fnt = font_load_bdf("assets/fonts/creep.bdf")
 
   var ms = if framerate > 0: 1/framerate else: 0
   var now = 0.0

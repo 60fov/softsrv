@@ -35,7 +35,7 @@ proc poll*() {.importc: "platform_poll".}
 # both window and framebuffer have 4 color channels
 proc present_framebuffer*(fb: Framebuffer) =
     var map = cast[ptr Bitmap](addr m_window)
-    when defined(macos): 
+    when defined(macosx):
         framebuffer_blit_rgb(fb, map)
     elif defined(windows):
         framebuffer_blit_bgr(fb, map)
