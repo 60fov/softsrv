@@ -14,42 +14,53 @@ proc d_line*(fb: Framebuffer, ax, ay, bx, by: int, r, g, b: uint8) =
   var y0 = ay
   var x1 = bx
   var y1 = by
-
-  var steep = abs(x0 - x1) < abs(y0 - y1)
-
-  if x0 > x1:
+  
+  if y1 < y0:
     swap(x0, x1)
     swap(y0, y1)
 
   var dx = x1 - x0
   var dy = y1 - y0
-  var s: float
-  var s_err = 0.5
-  if steep:
-    s = dx / dy
-    var d = abs(s)
-    var x = x0.float + 0.5
-    if s > 0:
-      for y in y0..y1:
-        fb.color[(x.int+y*fb.width)*4+0] = r
-        fb.color[(x.int+y*fb.width)*4+1] = g
-        fb.color[(x.int+y*fb.width)*4+2] = b
-        s_err += d
-        if s_err > 0.5:
-          s_err -= 0.5
-          x += s
-    else:
-    #   echo y0, " ", y1
-      var y = y1
-      while y <= y0:
-        fb.color[(x.int+y*fb.width)*4+0] = r
-        fb.color[(x.int+y*fb.width)*4+1] = g
-        fb.color[(x.int+y*fb.width)*4+2] = b
-        s_err += d
-        if s_err > 0.5:
-          s_err -= 0.5
-          x -= s
+
+  var err = 0.5
+  var delta = 0.0 
+  var d_err = 0.0 
+  var d = if x1 > x0: 1 else: -1
+
+  # TODO compare quadrant speeds
+  if abs(dy) > abs(dx):
+    # steep
+    delta = dx / dy
+    d_err = abs(delta)
+    var x = x0
+    for y in y0..y1:
+      var pi = x + y * fb.width
+      fb.color[pi * 4 + 0] = r
+      fb.color[pi * 4 + 1] = g
+      fb.color[pi * 4 + 2] = b
+      err += d_err
+      if err > 0.5:
+        err -= 1
+        x += d
+  else:
+    delta = dy / dx
+    d_err = abs(delta)
+    var y = y0
+    var x = x0
+    var i = 0
+    while i < abs(dx):
+      i += 1
+      var pi = x + y * fb.width
+      fb.color[pi * 4 + 0] = r
+      fb.color[pi * 4 + 1] = g
+      fb.color[pi * 4 + 2] = b
+      x += d
+      err += d_err
+      if err > 0.5:
+        err -= 1
         y += 1
+
+    
 
 
 
