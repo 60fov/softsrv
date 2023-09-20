@@ -1,5 +1,5 @@
 # softsrv
-soft serve, a personal software renderer, written in nim
+soft serve, a personal software renderer, written in ~~nim~~ ~~zig~~ c/c++
 
 ## why
 visuals are cool, math is cool, cpu go *vroom*
