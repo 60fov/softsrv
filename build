@@ -1,0 +1,32 @@
+#!/bin/bash
+source .env
+
+case "$OSTYPE" in
+  darwin*) # OSX
+    sys_file="osx.m" 
+    sys_flags="-framework Cocoa" 
+  ;; 
+  msys*|cygwin*) # Windows
+    sys_file="win.c"
+    sys_flags="-lgdi32"
+  ;;
+  # cygwin*)  echo "ALSO WINDOWS" ;; # Also Windows
+  # solaris*) echo "SOLARIS" ;;
+  # linux*)   echo "LINUX" ;;
+  # bsd*)     echo "BSD" ;;
+  *)        echo "unknown: $OSTYPE" ;;
+esac
+
+files="system/$sys_file $SRC_FILES $MAIN"
+flags="$FLAGS $sys_flags -O3"
+
+echo clang $flags -o $OUT $files
+
+if clang $flags -o $OUT $files
+then
+  echo "build success"
+  if [ "$1" = "run" ]
+  then
+    $OUT
+  fi
+fi

@@ -41,7 +41,7 @@ proc update(ms: float) =
   var y = 110
   d_line(fb, x, y, x+50, y+100, 255, 000, 126) # pink
   d_line(fb, x, y, x-50, y+100, 255, 255, 000) # yellow
-  d_line(fb, x, y, x-50, y-100, 126, 000, 255) # violet 
+  d_line(fb, x, y, x-50, y-100, 126, 000, 255) # violet
   d_line(fb, x, y, x+50, y-100, 000, 126, 255) # blue
 
   d_line(fb, x, y, x+100, y+50, 255, 25, 25) # red
@@ -50,7 +50,7 @@ proc update(ms: float) =
   d_line(fb, x, y, x+100, y-50, 255, 255, 255) # white
   
   var y0 = cos(2*time()) * 10 + 100
-  var y1 = cos(2*time()+2) * 10 + 100
+  var y1 = sin(2*time()+2) * 10 + 300
   d_line(fb, 300, int y0, 500, int y1, 0, 0, 0)
   
   present_framebuffer(fb)
@@ -72,7 +72,7 @@ when isMainModule:
 
   fb = framebuffer_create(Width, Height)
   img = image_load("assets/allura.ppm")
-  fnt = font_load_bdf("assets/fonts/cure.bdf")
+  fnt = font_load_bdf("assets/fonts/anorexia.bdf")
 
   var ms = if framerate > 0: 1/framerate else: 0
   var now = 0.0

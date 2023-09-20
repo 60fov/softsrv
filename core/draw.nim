@@ -1,12 +1,14 @@
 import framebuffer
 import image
 import misc
+import font
 
 
 
 proc d_pixel*(fb: var Framebuffer, x, y: int, r, g, b: uint8)
 proc d_line*(fb: var Framebuffer, ax, ay, bx, by: int, r, g, b: uint8)
 proc d_image*(fb: var Framebuffer, img: Bitmap, src=Rect[int](), dst=Rect[int]())
+proc d_char*(fb: var Framebuffer, bf: BitmapFont, x, y: int, r, g, b: uint8)
 
 proc d_pixel*(fb: var Framebuffer, x, y: int, r, g, b: uint8) =
   var pi = (x + y * fb.width) * 4
@@ -97,4 +99,5 @@ proc d_image*(fb: var Framebuffer, img: Bitmap, src, dst: Rect[int]) =
       for i in 0..<3:
         fb.color[di+i] = img.buffer[si+i]
 
-      
+
+proc d_char*(fb: var Framebuffer, bf: BitmapFont, x, y: int, r, g, b: uint8) = discard

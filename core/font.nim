@@ -107,4 +107,4 @@ proc font_load_bdf*(filepath: string): BitmapFont =
 
 
 when isMainModule:
-  discard font_load_bdf("assets"/"fonts"/"creep.bdf")
+    discard font_load_bdf("assets"/"fonts"/"creep.bdf")
