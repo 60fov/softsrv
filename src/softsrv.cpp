@@ -17,7 +17,7 @@ void freq_call(void (*fn)(double), freq_t &freq);
 
 framebuffer_t *fb;
 
-int main() {
+int main(void) {
   int width = 800;
   int height = 600;
   int framerate = 300;
@@ -37,6 +37,8 @@ int main() {
   }
 
   platform::destroy();
+
+  return 0;
 }
 
 void update(double ms) {

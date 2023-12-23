@@ -2,5 +2,9 @@
   "lldb.showDisassembly": "auto",
   "lldb.dereferencePointers": true,
   "lldb.consoleMode": "commands",
-  "lldb.displayFormat": "auto"
+  "lldb.displayFormat": "auto",
+  "files.associations": {
+    "windows.h": "c",
+    "wingdi.h": "c"
+  }
 }

@@ -1,32 +1,48 @@
 #!/bin/bash
-source .env
+src=src
+main=softsrv.cpp
+out=bin/softsrv
+flags="-Wall -pedantic"
+file_list=(
+  "$main"
+  core/platform.cpp 
+  core/framebuffer.cpp 
+  core/draw.cpp 
+  core/image.cpp
+)
 
 case "$OSTYPE" in
   darwin*) # OSX
-    sys_file="osx.m" 
+    file_list+=("system/osx.m")
     sys_flags="-framework Cocoa" 
   ;; 
   msys*|cygwin*) # Windows
-    sys_file="win.c"
+    file_list+=("system/win.c")
     sys_flags="-lgdi32"
   ;;
-  # cygwin*)  echo "ALSO WINDOWS" ;; # Also Windows
-  # solaris*) echo "SOLARIS" ;;
-  # linux*)   echo "LINUX" ;;
-  # bsd*)     echo "BSD" ;;
+  # linux*)   echo "LINUX" ;; # TODO
   *)        echo "unknown: $OSTYPE" ;;
 esac
 
-files="system/$sys_file $SRC_FILES $MAIN"
-flags="$FLAGS $sys_flags -O3"
+printf "\n"
+for f in "${file_list[@]}"; do
+  printf "%s\n" "$f"
+  files="$src/$f $files"
+done
 
-echo clang $flags -o $OUT $files
+flags="$flags $sys_flags -O3"
+cmd="clang -o $out $files $flags"
 
-if clang $flags -o $OUT $files
+printf "\n%s\n" "$cmd"
+
+printf "\nbuilding...\n"
+if $cmd
 then
-  echo "build success"
+  echo "success"
   if [ "$1" = "run" ]
   then
-    $OUT
+    printf "\nrunning %s\n\n" "$out"
+    printf "[program output]\n"
+    $out
   fi
 fi

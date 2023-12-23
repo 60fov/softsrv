@@ -47,4 +47,11 @@ void framebuffer::blit_rgb(framebuffer_t const *fb, bitmap_t *bitmap) {
   }
 }
 
-// void blit_rgb(t_framebuffer fb, bitmap_t bitmap) {}
+void framebuffer::blit_bgr(framebuffer_t const *fb, bitmap_t *bitmap) {
+  int size = (*fb).width * (*fb).height;
+  for (int i = 0; i < size; i++) {
+    for (int j = 0; j < 3; j++) {
+      (*bitmap).buffer[i * 4 + j] = (*fb).color[i * 4 + (2 - j)];
+    }
+  }
+}

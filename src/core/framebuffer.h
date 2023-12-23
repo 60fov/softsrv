@@ -18,7 +18,7 @@ void destroy(framebuffer_t *fb);
 void clear(framebuffer_t *fb);
 void blit(framebuffer_t const *fb, bitmap_t *bitmap);
 void blit_rgb(framebuffer_t const *fb, bitmap_t *bitmap);
-// void blit_bgr(t_framebuffer const &fb, bitmap_t &bitmap);
+void blit_bgr(framebuffer_t const *fb, bitmap_t *bitmap);
 
 } // namespace framebuffer
 
