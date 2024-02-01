@@ -1,11 +1,12 @@
 // server
-// [ ] send packets to clients
-// [ ] send 3 object positions
-// [ ] handle clients dropping in and out
+// [x] send packets to clients
+// [x] send 3 object positions
+// [x] handle clients dropping in and out
 
 // clients
-// [ ] send ping to server
-// [ ] render received objects
+// [x] send ping to server
+// [x] render received objects
+
 const std = @import("std");
 
 const Socket = struct {
@@ -320,6 +321,3 @@ pub fn main() !void {
         },
     }
 }
-
-// zig run multi_user_1 -- client
-// multi_user_1 client
