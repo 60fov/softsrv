@@ -5,6 +5,11 @@
   "lldb.displayFormat": "auto",
   "files.associations": {
     "windows.h": "c",
-    "wingdi.h": "c"
+    "wingdi.h": "c",
+    "cstdio": "cpp",
+    "cmath": "cpp",
+    "winapifamily.h": "c",
+    "winpackagefamily.h": "c",
+    "*.rh": "c"
   }
 }
