@@ -40,8 +40,8 @@ pub fn clear(self: *Framebuffer) void {
     const size: usize = @intCast(self.width * self.height);
 
     for (0..size) |i| {
-        for (0..3) |j| {
-            self.color[i + j] = 0;
+        for (0..4) |j| {
+            self.color[i * 4 + j] = 0;
         }
         self.depth[i] = 0;
     }
