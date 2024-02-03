@@ -32,12 +32,38 @@ fn log(_: i64) void {
     framecount = 0;
 }
 
+var time: f64 = 0;
 fn update(ms: i64) void {
     framecount += 1;
-    _ = ms;
+    time += @floatFromInt(ms);
     fb.clear();
 
     softsrv.draw.pixel(&fb, 1, 1, 255, 0, 0);
+
+    var x: i32 = 150;
+    var y: i32 = 110;
+
+    var dx: i32 = @intFromFloat(@cos(time / 200000) * 5);
+    var dy: i32 = @intFromFloat(@sin(time / 200000) * 5);
+
+    softsrv.draw.line(&fb, x, y, x + 50 + dx, y + 100 + dy, 255, 0, 126); // pink
+    softsrv.draw.line(&fb, x, y, x - 50 - dx, y + 100 + dy, 255, 255, 0); // yellow
+    softsrv.draw.line(&fb, x, y, x - 50 + dx, y - 100 - dy, 126, 0, 255); // violet
+    softsrv.draw.line(&fb, x, y, x + 50 - dx, y - 100 - dy, 0, 126, 255); // blue
+
+    softsrv.draw.line(&fb, x, y, width - 50 + dx, y + dy, 125, 125, 255); // lightblue
+
+    softsrv.draw.line(&fb, x, y, x + 100 + dy, y + 50 + dx, 255, 25, 25); // red
+    softsrv.draw.line(&fb, x, y, x - 100 - dy, y + 50 + dx, 0, 225, 160); // green
+    softsrv.draw.line(&fb, x, y, x - 100 + dy, y - 50 - dx, 255, 126, 126); // orange
+    softsrv.draw.line(&fb, x, y, x + 100 - dy, y - 50 - dx, 255, 255, 255); // white
+
+    var time_0: f64 = @floatFromInt(std.time.microTimestamp());
+    time_0 /= 1000000;
+
+    const y0: i32 = @intFromFloat(@cos(2 * time_0) * 10 + 100);
+    const y1: i32 = @intFromFloat(@sin(2 * time_0 + 2) * 10 + 300);
+    softsrv.draw.line(&fb, 300, y0, 500, y1, 100, 200, 250);
 
     softsrv.platform.present(&fb);
 }
