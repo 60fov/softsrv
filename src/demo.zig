@@ -5,6 +5,7 @@ const width = 800;
 const height = 600;
 const framerate = 300;
 
+var allura: softsrv.Image.Bitmap = undefined;
 var fb: softsrv.Framebuffer = undefined;
 
 pub fn main() !void {
@@ -15,6 +16,9 @@ pub fn main() !void {
 
     fb = try softsrv.Framebuffer.init(allocator, width, height);
     defer fb.deinit();
+
+    allura = try softsrv.Image.loadPPM(allocator, "assets/allura.ppm");
+    defer allura.deinit();
 
     var update_freq = Freq.init(framerate);
     var log_freq = Freq.init(1);
@@ -45,6 +49,8 @@ fn update(ms: i64) void {
 
     var dx: i32 = @intFromFloat(@cos(time / 200000) * 5);
     var dy: i32 = @intFromFloat(@sin(time / 200000) * 5);
+
+    softsrv.draw.bitmap(&fb, allura, 100, 100);
 
     softsrv.draw.line(&fb, x, y, x + 50 + dx, y + 100 + dy, 255, 0, 126); // pink
     softsrv.draw.line(&fb, x, y, x - 50 - dx, y + 100 + dy, 255, 255, 0); // yellow

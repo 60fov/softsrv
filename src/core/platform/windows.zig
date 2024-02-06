@@ -71,7 +71,7 @@ pub const Window = struct {
                 .biWidth = width,
                 .biHeight = -height,
                 .biPlanes = 1,
-                .biBitCount = 32,
+                .biBitCount = 24, // TODO hard code bit depth
                 .biCompression = win32.BI_RGB,
             },
             .bmiColors = .{},

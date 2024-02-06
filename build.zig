@@ -4,6 +4,13 @@ const Build = std.Build;
 // TODO how to build softsrv a lib (or something)
 
 pub fn build(b: *Build) void {
+    const install_options: Build.InstallDirectoryOptions = .{
+        .source_dir = .{ .path = "assets" },
+        .install_dir = .{ .prefix = {} },
+        .install_subdir = "assets",
+    };
+    b.installDirectory(install_options);
+
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
