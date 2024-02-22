@@ -8,6 +8,8 @@ const Bitmap = @import("../image.zig").Bitmap;
 
 const WINDOW_CLASS_NAME: windows.LPCSTR = "SOFTSRV_WC";
 
+var raw_input_buffer: [@sizeOf(win32.RAWINPUT)]u8 = undefined;
+
 pub const Window = struct {
     allocator: std.mem.Allocator,
     handle: windows.HWND,
@@ -16,7 +18,7 @@ pub const Window = struct {
     bitmap: Bitmap,
 
     pub fn init(allocator: std.mem.Allocator, title: [*:0]const u8, width: i32, height: i32) !Window {
-        var hInstance: windows.HINSTANCE = @ptrCast(win32.GetModuleHandleA(null));
+        const hInstance: windows.HINSTANCE = @ptrCast(win32.GetModuleHandleA(null));
 
         const window_class: win32.WNDCLASSEXA = .{
             .cbSize = @sizeOf(win32.WNDCLASSEXA),
@@ -74,8 +76,25 @@ pub const Window = struct {
                 .biBitCount = 24, // TODO hard code bit depth
                 .biCompression = win32.BI_RGB,
             },
-            .bmiColors = .{},
+            .bmiColors = .{.{}},
         };
+
+        var mouseRid = win32.RAWINPUTDEVICE{
+            .usUsagePage = win32.HID_USAGE_PAGE_GENERIC,
+            .usUsage = win32.HID_USAGE_GENERIC_MOUSE,
+            .dwFlags = 0,
+            .hwndTarget = null,
+        };
+
+        if (false) {
+            if (win32.RegisterRawInputDevices(&mouseRid, 1, @sizeOf(@TypeOf(mouseRid))) == windows.FALSE) {
+                const code = win32.GetLastError();
+                std.debug.print("failed to register raw input device, last error code: {d}\n", .{code});
+                return error.FailedRegisterRawInputDevices;
+            }
+        }
+
+        // raw_input_buffer = @ptrCast(try allocator.alloc(u8, @sizeOf(win32.RAWINPUT)));
 
         // store info and handle
         _ = win32.ShowWindow(handle, win32.SW_SHOW);
@@ -110,7 +129,7 @@ pub const Window = struct {
     pub fn present(self: *Window) void {
         const dc = win32.GetDC(self.handle);
 
-        var scanlines = win32.SetDIBitsToDevice(
+        const scanlines = win32.SetDIBitsToDevice(
             dc,
             0,
             0,
@@ -152,15 +171,138 @@ pub const Window = struct {
         wParam: windows.WPARAM,
         lParam: windows.LPARAM,
     ) callconv(WINAPI) windows.LRESULT {
+        const input = platform.input;
         switch (msg) {
             win32.WM_CLOSE => {
                 platform.quit();
             },
-            else => {},
+
+            win32.WM_MOUSEMOVE => {
+                input._mouse.x = @intCast(lParam & 0xffff);
+                input._mouse.y = @intCast(lParam >> 16);
+            },
+
+            win32.WM_LBUTTONDOWN => input._mouse.button.left = true,
+            win32.WM_MBUTTONDOWN => input._mouse.button.middle = true,
+            win32.WM_RBUTTONDOWN => input._mouse.button.right = true,
+            win32.WM_LBUTTONUP => input._mouse.button.left = false,
+            win32.WM_MBUTTONUP => input._mouse.button.middle = false,
+            win32.WM_RBUTTONUP => input._mouse.button.right = false,
+
+            win32.WM_XBUTTONDOWN => {
+                if (wParam >> 16 & win32.XBUTTON1 != 0) {
+                    input._mouse.button.x1 = true;
+                } else {
+                    input._mouse.button.x2 = true;
+                }
+            },
+            win32.WM_XBUTTONUP => {
+                if (wParam >> 16 & win32.XBUTTON1 != 0) {
+                    input._mouse.button.x1 = false;
+                } else {
+                    input._mouse.button.x2 = false;
+                }
+            },
+            // TODO https://stackoverflow.com/questions/5681284/how-do-i-distinguish-between-left-and-right-keys-ctrl-and-alt
+            win32.WM_SYSKEYDOWN, win32.WM_KEYDOWN => {
+                const was_down = lParam & (1 << 30) != 0;
+                if (!was_down) {
+                    const key_code: u8 = @truncate(wParam);
+                    const new_state = input.Keyboard.KeyState{
+                        .down = true,
+                        .just = true,
+                    };
+                    input._keyboard.keys[key_code] = new_state;
+                }
+            },
+            win32.WM_SYSKEYUP, win32.WM_KEYUP => {
+                const key_code: u8 = @truncate(wParam);
+                const new_state = input.Keyboard.KeyState{
+                    .down = false,
+                    .just = true,
+                };
+                input._keyboard.keys[key_code] = new_state;
+            },
+
+            win32.WM_INPUT => {
+                const raw_input_handle: windows.HANDLE = @ptrFromInt(@as(usize, @bitCast(lParam)));
+
+                var expected_size: windows.UINT = undefined;
+
+                if (win32.GetRawInputData(
+                    raw_input_handle,
+                    win32.RID_INPUT,
+                    null,
+                    &expected_size,
+                    @sizeOf(win32.RAWINPUTHEADER),
+                ) != 0) {
+                    printLastError("getRawInputData header fetch");
+                    return 0;
+                }
+
+                // if (expected_size == 0) {
+                //     return 0;
+                // }
+
+                // std.debug.print("expected_size {d}\n", .{expected_size});
+
+                const size = win32.GetRawInputData(
+                    raw_input_handle,
+                    win32.RID_INPUT,
+                    @ptrCast(&raw_input_buffer),
+                    &expected_size,
+                    @sizeOf(win32.RAWINPUTHEADER),
+                );
+                if (size != expected_size) {
+                    // error
+                    // printLastError("failed GetRawInputData to load buffer");
+                    // std.debug.print("unexpected size from getRawInputData, size: {d} != expected: {d}\n", .{ size, expected_size });
+                }
+
+                const raw: *win32.RAWINPUT = @ptrCast(@alignCast(&raw_input_buffer));
+
+                const isAbsolute = raw.data.mouse.usFlags & win32.MOUSE_MOVE_ABSOLUTE != 0;
+                // std.debug.print("usFlags {}\n", .{raw.data.mouse.usFlags});
+
+                if (raw.header.dwType == win32.RIM_TYPEMOUSE) {
+                    if (isAbsolute) {
+                        if (raw.data.mouse.usFlags & win32.MOUSE_VIRTUAL_DESKTOP != 0) {
+                            var rect: windows.RECT = undefined;
+                            if (raw.data.mouse.usFlags & win32.MOUSE_VIRTUAL_DESKTOP != 0) {
+                                rect.left = win32.GetSystemMetrics(win32.SM_XVIRTUALSCREEN);
+                                rect.top = win32.GetSystemMetrics(win32.SM_YVIRTUALSCREEN);
+                                rect.right = win32.GetSystemMetrics(win32.SM_CXVIRTUALSCREEN);
+                                rect.bottom = win32.GetSystemMetrics(win32.SM_CYVIRTUALSCREEN);
+                            } else {
+                                rect.left = 0;
+                                rect.top = 0;
+                                rect.right = win32.GetSystemMetrics(win32.SM_CXSCREEN);
+                                rect.bottom = win32.GetSystemMetrics(win32.SM_CYSCREEN);
+                            }
+                            const absoluteX = win32.MulDiv(raw.data.mouse.lLastX, rect.right, 65535) + rect.left;
+                            const absoluteY = win32.MulDiv(raw.data.mouse.lLastY, rect.bottom, 65535) + rect.top;
+                            platform.input._mouse.x = @intCast(absoluteX);
+                            platform.input._mouse.y = @intCast(absoluteY);
+                        }
+                    } else if ((raw.data.mouse.lLastX != 0 or raw.data.mouse.lLastY != 0)) {
+                        // std.debug.print("mouse {}\n", .{raw.data.mouse});
+                        platform.input._mouse.x += @intCast(raw.data.mouse.lLastX);
+                        platform.input._mouse.y += @intCast(raw.data.mouse.lLastY);
+                    }
+                }
+            },
+            else => {
+                return win32.DefWindowProcA(hwnd, msg, wParam, lParam);
+            },
         }
-        return win32.DefWindowProcA(hwnd, msg, wParam, lParam);
+        return 0;
     }
 };
+
+fn printLastError(msg: []const u8) void {
+    const code = win32.GetLastError();
+    std.debug.print("{s}, error: {d}\n", .{ msg, code });
+}
 
 test "create" {
     var w = try Window.init(std.testing.allocator, "windows window test", 600, 400);

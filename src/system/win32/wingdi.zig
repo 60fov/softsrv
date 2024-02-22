@@ -25,10 +25,10 @@ pub const BITMAPINFOHEADER = extern struct {
 };
 
 const RGBQUAD = extern struct {
-    rgbBlue: windows.BYTE,
-    rgbGreen: windows.BYTE,
-    rgbRed: windows.BYTE,
-    rgbReserved: windows.BYTE,
+    rgbBlue: windows.BYTE = 0,
+    rgbGreen: windows.BYTE = 0,
+    rgbRed: windows.BYTE = 0,
+    rgbReserved: windows.BYTE = 0,
 };
 
 /// https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-setdibitstodevice

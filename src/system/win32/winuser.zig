@@ -6,6 +6,24 @@ const wingdi = @import("wingdi.zig");
 const windef = @import("windef.zig");
 
 pub const WM_CLOSE: windows.UINT = 0x0010;
+pub const WM_INPUT: windows.UINT = 0x00FF;
+pub const WM_MOUSEMOVE: windows.UINT = 0x0200;
+pub const WM_KEYDOWN: windows.UINT = 0x0100;
+pub const WM_KEYUP: windows.UINT = 0x0101;
+pub const WM_SYSKEYDOWN: windows.UINT = 0x0104;
+pub const WM_SYSKEYUP: windows.UINT = 0x0105;
+pub const WM_LBUTTONDOWN: windows.UINT = 0x0201;
+pub const WM_LBUTTONUP: windows.UINT = 0x0202;
+pub const WM_MBUTTONDOWN: windows.UINT = 0x0207;
+pub const WM_MBUTTONUP: windows.UINT = 0x0208;
+pub const WM_RBUTTONDOWN: windows.UINT = 0x0204;
+pub const WM_RBUTTONUP: windows.UINT = 0x0205;
+pub const WM_XBUTTONDOWN: windows.UINT = 0x020B;
+pub const WM_XBUTTONUP: windows.UINT = 0x020C;
+
+/// https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-xbuttondown
+pub const XBUTTON1: windows.UINT = 0x0001;
+pub const XBUTTON2: windows.UINT = 0x0002;
 
 pub const CS_VREDRAW = 0x0001;
 pub const CS_HREDRAW = 0x0002;
@@ -181,6 +199,58 @@ pub const DIB_USAGE = enum(u32) {
 pub const DIB_RGB_COLORS: u32 = 0;
 pub const DIB_PAL_COLORS: u32 = 0;
 
+pub const RIDEV_NOLEGACY: windows.DWORD = 0x00000030;
+pub const RIDEV_CAPTUREMOUSE: windows.DWORD = 0x00000200;
+pub const RIDEV_DEVNOTIFY: windows.DWORD = 0x00002000;
+
+/// https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getrawinputdata#parameters
+pub const RID_HEADER: windows.UINT = 0x10000005;
+pub const RID_INPUT: windows.UINT = 0x10000003;
+
+/// https://learn.microsoft.com/en-us/windows-hardware/drivers/hid/hid-usages#usage-page
+pub const HID_USAGE_PAGE_GENERIC: windows.USHORT = 0x01;
+pub const HID_USAGE_GENERIC_MOUSE: windows.USHORT = 0x02;
+pub const HID_USAGE_GENERIC_KEYBOARD: windows.USHORT = 0x06;
+
+/// https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-rawinputheader#members
+pub const RIM_TYPEMOUSE: windows.DWORD = 0;
+pub const RIM_TYPEKEYBOARD: windows.DWORD = 1;
+pub const RIM_TYPEHID: windows.DWORD = 2;
+
+/// https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-rawmouse#members
+pub const MOUSE_MOVE_RELATIVE = 0x00;
+pub const MOUSE_MOVE_ABSOLUTE = 0x01;
+pub const MOUSE_VIRTUAL_DESKTOP = 0x02;
+pub const MOUSE_ATTRIBUTES_CHANGED = 0x04;
+pub const MOUSE_MOVE_NOCOALESCE = 0x0;
+
+pub const RI_MOUSE_BUTTON_1_DOWN = 0x0001;
+pub const RI_MOUSE_LEFT_BUTTON_DOWN = 0x0001;
+pub const RI_MOUSE_BUTTON_1_UP = 0x0002;
+pub const RI_MOUSE_LEFT_BUTTON_UP = 0x0002;
+pub const RI_MOUSE_BUTTON_2_DOWN = 0x0004;
+pub const RI_MOUSE_RIGHT_BUTTON_DOWN = 0x0004;
+pub const RI_MOUSE_BUTTON_2_UP = 0x0008;
+pub const RI_MOUSE_RIGHT_BUTTON_UP = 0x0008;
+pub const RI_MOUSE_BUTTON_3_DOWN = 0x0010;
+pub const RI_MOUSE_MIDDLE_BUTTON_DOWN = 0x0010;
+pub const RI_MOUSE_BUTTON_3_UP = 0x0020;
+pub const RI_MOUSE_MIDDLE_BUTTON_UP = 0x0020;
+pub const RI_MOUSE_BUTTON_4_DOWN = 0x0040;
+pub const RI_MOUSE_BUTTON_4_UP = 0x0080;
+pub const RI_MOUSE_BUTTON_5_DOWN = 0x0100;
+pub const RI_MOUSE_BUTTON_5_UP = 0x020;
+pub const RI_MOUSE_WHEEL = 0x0400;
+pub const RI_MOUSE_HWHEEL = 0x0800;
+
+/// https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getsystemmetrics
+pub const SM_CXSCREEN: windows.INT = 0;
+pub const SM_CYSCREEN: windows.INT = 1;
+pub const SM_XVIRTUALSCREEN: windows.INT = 76;
+pub const SM_YVIRTUALSCREEN: windows.INT = 77;
+pub const SM_CXVIRTUALSCREEN: windows.INT = 78;
+pub const SM_CYVIRTUALSCREEN: windows.INT = 79;
+
 /// https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-wndclassexa
 pub const WNDCLASSEXA = extern struct {
     cbSize: windows.UINT,
@@ -207,6 +277,66 @@ pub const MSG = extern struct {
     lPrivate: windows.DWORD,
 };
 
+/// https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-rawinputdevice
+pub const RAWINPUTDEVICE = extern struct {
+    usUsagePage: windows.USHORT,
+    usUsage: windows.USHORT,
+    dwFlags: windows.DWORD,
+    hwndTarget: ?windows.HWND,
+};
+
+/// https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-rawinput
+pub const RAWINPUT = struct {
+    header: RAWINPUTHEADER,
+    data: union {
+        mouse: RAWMOUSE,
+        keyboard: RAWKEYBOARD,
+        hid: RAWHID,
+    },
+};
+
+/// https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-rawmouse
+pub const RAWMOUSE = struct {
+    usFlags: windows.USHORT,
+    DUMMYUNIONNAME: union {
+        ulButtons: windows.ULONG,
+        DUMMYSTRUCTNAME: struct {
+            usButtonFlags: windows.USHORT,
+            usButtonData: windows.USHORT,
+        },
+    },
+    ulRawButtons: windows.ULONG,
+    lLastX: windows.LONG,
+    lLastY: windows.LONG,
+    ulExtraInformation: windows.ULONG,
+};
+
+/// https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-rawkeyboard
+pub const RAWKEYBOARD = struct {
+    MakeCode: windows.USHORT,
+    Flags: windows.USHORT,
+    Reserved: windows.USHORT,
+    VKey: windows.USHORT,
+    Message: windows.UINT,
+    ExtraInformation: windows.ULONG,
+};
+
+/// https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-rawhid
+pub const RAWHID = struct {
+    dwSizeHid: windows.DWORD,
+    dwCount: windows.DWORD,
+    bRawData: [1]windows.BYTE,
+};
+
+/// https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-rawinputheader
+pub const RAWINPUTHEADER = struct {
+    dwType: windows.DWORD,
+    dwSize: windows.DWORD,
+    hDevice: windows.HANDLE,
+    wParam: windows.WPARAM,
+};
+
+/// https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-rawinputdevice
 pub const WNDPROC = *const fn (
     param0: windows.HWND,
     param1: u32,
@@ -281,3 +411,25 @@ pub extern "user32" fn PeekMessageA(
 pub extern "user32" fn TranslateMessage(lpMsg: *const MSG) callconv(WINAPI) windows.BOOL;
 
 pub extern "user32" fn DispatchMessageA(lpMsg: *const MSG) callconv(WINAPI) windows.LRESULT;
+
+/// https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerrawinputdevices
+pub extern "user32" fn RegisterRawInputDevices(
+    pRawInputDevices: *RAWINPUTDEVICE,
+    uiNumDevices: windows.UINT,
+    cbSize: windows.UINT,
+) callconv(WINAPI) windows.BOOL;
+
+/// https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getrawinputdata
+pub extern "user32" fn GetRawInputData(
+    /// handle to RAWINPUT
+    hRawInput: *anyopaque,
+    uiCommand: windows.UINT,
+    pData: ?windows.LPVOID,
+    pcbSize: *windows.UINT,
+    cbSizeHeader: windows.UINT,
+) callconv(WINAPI) windows.UINT;
+
+/// https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getsystemmetrics
+pub extern "user32" fn GetSystemMetrics(
+    nIndex: windows.INT,
+) callconv(WINAPI) windows.INT;
