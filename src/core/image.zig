@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const BufferedReader = @import("io.zig").BufferedReader;
+
 pub const Bitmap = struct {
     allocator: std.mem.Allocator,
 
@@ -16,7 +18,7 @@ pub const Bitmap = struct {
         };
     }
 
-    pub fn deinit(self: *Bitmap) void {
+    pub fn deinit(self: Bitmap) void {
         self.allocator.free(self.buffer);
     }
 
@@ -46,7 +48,7 @@ const PPMError = error{
     UnexpectedEOF,
 };
 
-// TODO implement loadPPM https://en.wikipedia.org/wiki/Netpbm?useskin=vector
+// TODO is there a better way? (PEG grammar for ppm, jk, jk... unless 🤨)
 pub fn loadPPM(allocator: std.mem.Allocator, path: []const u8) !Bitmap {
     const file = try std.fs.cwd().openFile(path, .{ .mode = .read_only });
     defer file.close();
@@ -56,7 +58,7 @@ pub fn loadPPM(allocator: std.mem.Allocator, path: []const u8) !Bitmap {
     var height: u32 = undefined;
     var max_val: u16 = undefined;
 
-    var reader_buffer: []u8 = try allocator.alloc(u8, 4096);
+    const reader_buffer: []u8 = try allocator.alloc(u8, 4096);
     defer allocator.free(reader_buffer);
     var read_size = try file.read(reader_buffer);
 
@@ -100,57 +102,3 @@ pub fn loadPPM(allocator: std.mem.Allocator, path: []const u8) !Bitmap {
 
     return bitmap;
 }
-
-const BufferedReader = struct {
-    buffer: []u8,
-    pos: usize = 0,
-
-    /// returns total bytes read
-    fn readIntoBuffer(self: *BufferedReader, buffer: []u8) usize {
-        const start = self.pos;
-        const end = if (self.pos + buffer.len > self.buffer.len) self.buffer.len else buffer.len;
-
-        self.pos = end;
-        @memcpy(buffer[0..buffer.len], self.buffer[start..end]);
-        return end - start;
-    }
-
-    fn eatByte(self: *BufferedReader) ![]u8 {
-        if (self.pos >= self.buffer.len) return error.EOB;
-        const byte = self.buffer[self.pos];
-        self.pos += 1;
-        return byte;
-    }
-
-    fn skipWhitespace(self: *BufferedReader) void {
-        while (true) {
-            switch (self.buffer[self.pos]) {
-                '\n', '\r', '\t', ' ' => self.pos += 1,
-                else => return,
-            }
-        }
-    }
-
-    fn readUntilWhitespace(self: *BufferedReader) []u8 {
-        var len: usize = 0;
-
-        while (true) {
-            const byte_index = self.pos + len;
-            if (byte_index > self.buffer.len) break;
-            const byte = self.buffer[byte_index];
-            switch (byte) {
-                '\n', '\r', '\t', ' ' => break,
-                else => len += 1,
-            }
-        }
-
-        const start = self.pos;
-        const end = start + len;
-        self.pos = end;
-        return self.buffer[start..end];
-    }
-
-    fn peekToEnd(self: BufferedReader) []u8 {
-        return self.buffer[self.pos..];
-    }
-};

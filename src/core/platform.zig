@@ -3,6 +3,8 @@ const Allocator = std.mem.Allocator;
 const builtin = @import("builtin");
 const windows = std.os.windows;
 
+pub const input = @import("input.zig");
+
 const Framebuffer = @import("framebuffer.zig");
 const Bitmap = @import("image.zig").Bitmap;
 

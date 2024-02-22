@@ -7,9 +7,10 @@ const framerate = 300;
 
 var allura: softsrv.Image.Bitmap = undefined;
 var fb: softsrv.Framebuffer = undefined;
+var font: softsrv.font.BitmapFont = undefined;
 
 pub fn main() !void {
-    var allocator = std.heap.page_allocator;
+    const allocator = std.heap.page_allocator;
 
     try softsrv.platform.init(allocator, "softsrv demo", width, height);
     defer softsrv.platform.deinit();
@@ -20,10 +21,13 @@ pub fn main() !void {
     allura = try softsrv.Image.loadPPM(allocator, "assets/allura.ppm");
     defer allura.deinit();
 
+    font = try softsrv.font.BitmapFont.load(allocator, "assets/fonts/cure.bdf");
+    defer font.deinit();
+
     var update_freq = Freq.init(framerate);
     var log_freq = Freq.init(1);
 
-    while (softsrv.platform.shouldQuit() != true) {
+    while (!softsrv.platform.shouldQuit()) {
         softsrv.platform.poll();
         update_freq.call(update);
         log_freq.call(log);
@@ -42,14 +46,16 @@ fn update(ms: i64) void {
     time += @floatFromInt(ms);
     fb.clear();
 
+    // pixel demo
     softsrv.draw.pixel(&fb, 1, 1, 255, 0, 0);
 
-    var x: i32 = 150;
-    var y: i32 = 110;
+    const x: i32 = 150;
+    const y: i32 = 110;
 
-    var dx: i32 = @intFromFloat(@cos(time / 200000) * 5);
-    var dy: i32 = @intFromFloat(@sin(time / 200000) * 5);
+    const dx: i32 = @intFromFloat(@cos(time / 200000) * 5);
+    const dy: i32 = @intFromFloat(@sin(time / 200000) * 5);
 
+    // bitmap demo
     softsrv.draw.bitmap(&fb, allura, 100, 100);
 
     softsrv.draw.line(&fb, x, y, x + 50 + dx, y + 100 + dy, 255, 0, 126); // pink
@@ -64,12 +70,26 @@ fn update(ms: i64) void {
     softsrv.draw.line(&fb, x, y, x - 100 + dy, y - 50 - dx, 255, 126, 126); // orange
     softsrv.draw.line(&fb, x, y, x + 100 - dy, y - 50 - dx, 255, 255, 255); // white
 
+    // time demo
     var time_0: f64 = @floatFromInt(std.time.microTimestamp());
     time_0 /= 1000000;
 
     const y0: i32 = @intFromFloat(@cos(2 * time_0) * 10 + 100);
     const y1: i32 = @intFromFloat(@sin(2 * time_0 + 2) * 10 + 300);
     softsrv.draw.line(&fb, 300, y0, 500, y1, 100, 200, 250);
+
+    // input demo
+    const input = softsrv.platform.input;
+    const m = input.mouse();
+    const kb = input.kb();
+
+    const blue: u8 = if (kb.key(.KC_SPACE).isDown()) 255 else 100;
+
+    softsrv.draw.line(&fb, 0, 0, @intCast(m.x), @intCast(m.y), 190, 80, blue);
+
+    // font demo
+    softsrv.draw.bitmap(&fb, font.bitmap, 300, 200);
+    softsrv.draw.text(&fb, "this took way too long", font, 150, 150);
 
     softsrv.platform.present(&fb);
 }
