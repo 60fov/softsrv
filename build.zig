@@ -4,7 +4,7 @@ const Build = std.Build;
 // TODO how to build softsrv a lib (or something)
 
 pub fn build(b: *Build) void {
-    const install_options: Build.InstallDirectoryOptions = .{
+    const install_options: Build.Step.InstallDir.Options = .{
         .source_dir = .{ .path = "assets" },
         .install_dir = .{ .prefix = {} },
         .install_subdir = "assets",
@@ -37,6 +37,8 @@ pub fn build(b: *Build) void {
 
     systemDep(b, tests);
 
+    b.installArtifact(tests);
+
     const run_tests = b.addRunArtifact(tests);
     // TODO ??? https://zig.guide/build-system/zig-build
     // run_tests.step.dependOn(b.getInstallStep());
@@ -46,11 +48,11 @@ pub fn build(b: *Build) void {
 }
 
 fn systemDep(b: *Build, compile: *Build.Step.Compile) void {
-    // compile.linkLibC();
+    compile.linkLibC();
 
-    if (b.host.target.os.tag == std.Target.Os.Tag.windows) {
+    if (b.host.result.os.tag == std.Target.Os.Tag.windows) {
         // compile.linkSystemLibrary("gdi32");
-    } else {
+    } else if (b.host.result.os.tag == std.Target.Os.Tag.macos) {
         // TODO mac build
         compile.addCSourceFile(.{
             .file = .{ .path = "src/system/osx.m" },
