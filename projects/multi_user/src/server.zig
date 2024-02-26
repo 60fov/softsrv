@@ -9,7 +9,7 @@ pub const tick_rate = 120;
 pub const conn_max = 256;
 
 // TODO why do these have to be var
-pub var ip: std.net.Address = std.net.Address.initIp4([4]u8{ 172, 16, 4, 7 }, 0xbeef);
+pub var ip: std.net.Address = std.net.Address.initIp4([4]u8{ 192, 168, 1, 9 }, 0xbeef);
 
 const Server = @This();
 
@@ -23,7 +23,6 @@ connections: []Connection,
 state: *game.State,
 
 pub fn update(self: *Server, ms: i64) bool {
-    _ = ms;
     // ingest incomming packets
     var sender_ip: std.net.Address = undefined;
     while (self.socket.recvPacket(&sender_ip)) |packet| {
@@ -36,22 +35,53 @@ pub fn update(self: *Server, ms: i64) bool {
                     continue;
                 };
             },
+            .connect_request => blk: {
+                for (self.connections, 0..) |*conn, conn_id| {
+                    if (conn.isConnected) {
+                        if (conn.address.eql(sender_ip)) break; // client already connected.
+                        continue; // slot taken
+                    }
+                    std.debug.print("new connection, addr: {}, conn_id: {d}\n", .{ sender_ip, conn_id });
+                    conn.isConnected = true;
+                    conn.address = sender_ip;
+                    // conn.last_ping = std.time.timestamp();
+                    const response = net.Packet{ .data = .{ .connect_response = .{ .id = @intCast(conn_id) } } };
+                    self.socket.sendPacket(&response, sender_ip) catch |err| {
+                        std.debug.print("failed to send packet, error {s}\n", .{@errorName(err)});
+                        break :blk;
+                    };
+                    // TODO notify all other connections new player connected (not needed i think)
+                    break :blk;
+                }
+                std.debug.print("failed to add to connections\n", .{});
+            },
             else => {
                 std.debug.print("unhandled packet type: {s}\n", .{@tagName(packet.data)});
             },
         }
     } else |err| switch (err) {
         error.WouldBlock => {},
+        error.ConnectionResetByPeer => {},
         else => {
             std.debug.print("[unhandled error] recv'ing packet: {s}\n", .{@errorName(err)});
             return false;
         },
     }
 
-    // simulate
-    // game.simulate(self.state, ms);
+    // update game state
+    game.simulate(self.state, ms);
 
     // send new game state
+    {
+        for (self.connections) |conn| {
+            if (conn.isConnected) {
+                const packet: net.Packet = .{ .data = .{ .state_update = .{ .state = self.state.* } } };
+                self.socket.sendPacket(&packet, conn.address) catch |err| {
+                    std.debug.print("failed to send packet to {}, error {s}\n", .{ conn.address, @errorName(err) });
+                };
+            }
+        }
+    }
 
     return true;
 }
@@ -65,6 +95,12 @@ pub fn init(allocator: std.mem.Allocator) !Server {
     var socket = net.Socket{
         .address = ip,
     };
+
+    // const addr_list = try std.net.getAddressList(allocator, "", 0xbeef);
+    // defer addr_list.deinit();
+    // for (addr_list.addrs) |addr| {
+    //     std.debug.print("addr: {}\n", .{addr});
+    // }
 
     try socket.socket(.{});
     try socket.bind();
@@ -120,8 +156,7 @@ pub fn run(self: *Server) void {
 }
 
 const Connection = struct {
-    const Id = u32;
-
     address: std.net.Address,
     last_ping: u64,
+    isConnected: bool,
 };

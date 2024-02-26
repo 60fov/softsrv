@@ -10,6 +10,7 @@ pub const tick_rate = Server.tick_rate;
 
 const Client = @This();
 
+const reconnect_time = 1;
 const local_host = "172.16.4.7";
 const WIDTH = 800;
 const HEIGHT = 600;
@@ -20,7 +21,7 @@ framebuffer: softsrv.Framebuffer,
 
 socket: net.Socket,
 connected_to_server: bool = false,
-server_ping_timer: std.time.Timer,
+connect_attempt_timer: std.time.Timer,
 print_timer: std.time.Timer,
 
 update_count: u32 = 0,
@@ -29,22 +30,20 @@ render_count: u32 = 0,
 state: *game.State,
 
 pub fn update(self: *Client, ms: i64) bool {
-    // recv server updates
-    reconn_ping: {
-        if (!self.connected_to_server) {
-            const last_ping_time = self.server_ping_timer.read();
-            if (last_ping_time > 1 * 1e+9) {
-                self.server_ping_timer.reset();
-                const packet = net.Packet{ .data = .{ .ping = .{} } };
-                self.socket.sendPacket(&packet, Server.ip) catch |err| {
-                    std.debug.print("attempted to ping server: error {s}\n", .{@errorName(err)});
-                    break :reconn_ping;
-                };
-                std.debug.print("pinging server @ {}\n", .{Server.ip});
-            }
+    _ = ms;
+    if (!self.connected_to_server) {
+        const last_time = self.connect_attempt_timer.read();
+        if (last_time >= reconnect_time * 1e+9) {
+            self.connect_attempt_timer.reset();
+            const packet = net.Packet{ .data = .{ .connect_request = .{} } };
+            std.debug.print("attempting to connect to server @ {}...\n", .{Server.ip});
+            self.socket.sendPacket(&packet, Server.ip) catch |err| {
+                std.debug.print("failed to send connect packet, error {s}\n", .{@errorName(err)});
+            };
         }
     }
 
+    // recv server updates
     var sender_ip: std.net.Address = undefined;
     while (self.socket.recvPacket(&sender_ip)) |packet| {
         if (!sender_ip.eql(Server.ip)) continue;
@@ -52,7 +51,13 @@ pub fn update(self: *Client, ms: i64) bool {
         switch (packet.data) {
             .ping => {
                 std.debug.print("ping!\n", .{});
+            },
+            .connect_response => {
+                std.debug.print("connected to server, id: {d}\n", .{packet.data.connect_response.id});
                 self.connected_to_server = true;
+            },
+            .state_update => {
+                self.state.* = packet.data.state_update.state;
             },
             else => {
                 std.debug.print("unhandled packet type: {s}\n", .{@tagName(packet.data)});
@@ -81,8 +86,12 @@ pub fn update(self: *Client, ms: i64) bool {
     softsrv.platform.poll();
     // input.update();
 
+    // TODO
+    // send client input to server
+    // interp rendition
+
     // update game state
-    game.simulate(self.state, ms);
+    // game.simulate(self.state, ms);
 
     // render
     game.render(self.state, &self.framebuffer);
@@ -123,7 +132,7 @@ pub fn init(allocator: std.mem.Allocator) !Client {
         .socket = socket,
         .framebuffer = fb,
 
-        .server_ping_timer = try std.time.Timer.start(),
+        .connect_attempt_timer = try std.time.Timer.start(),
         .print_timer = try std.time.Timer.start(),
 
         .state = state,
