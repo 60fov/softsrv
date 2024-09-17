@@ -24,14 +24,14 @@ pub const BitmapFont = struct {
     width: usize,
     height: usize,
 
-    pub fn deinit(self: *BitmapFont) void {
+    pub fn deinit(self: *BitmapFont, allocator: std.mem.Allocator) void {
         if (self.name) |name| {
             self.allocator.free(name);
             self.name = null;
         }
         self.allocator.free(self.glyphs);
 
-        self.bitmap.deinit();
+        self.bitmap.deinit(allocator);
 
         self.* = undefined;
     }
@@ -102,7 +102,7 @@ pub const BitmapFont = struct {
         font.width = gw;
         font.height = gh;
         font.bitmap = try Bitmap.init(allocator, @intCast(bitmap_size), @intCast(bitmap_size));
-        errdefer font.bitmap.deinit();
+        errdefer font.bitmap.deinit(allocator);
 
         for (glyph_token_list.items, 0..) |glyph_token, gi| {
             const gx = @mod(gi, gw);
@@ -316,11 +316,11 @@ pub const BitmapFont = struct {
 
 test {
     var font = try BitmapFont.load(std.testing.allocator, "assets/fonts/creep.bdf");
-    font.deinit();
+    font.deinit(std.testing.allocator);
     font = try BitmapFont.load(std.testing.allocator, "assets/fonts/cure.bdf");
-    font.deinit();
+    font.deinit(std.testing.allocator);
     font = try BitmapFont.load(std.testing.allocator, "assets/fonts/lemon.bdf");
-    defer font.deinit();
+    defer font.deinit(std.testing.allocator);
 
     const e = font.glyphs['E'];
     std.debug.print("E: {}\n", .{e});

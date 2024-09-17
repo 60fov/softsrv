@@ -1,6 +1,5 @@
 const std = @import("std");
 const windows = std.os.windows;
-const WINAPI = windows.WINAPI;
 
 const win32 = @import("../../system/win32.zig");
 const platform = @import("../platform.zig");
@@ -11,11 +10,8 @@ const WINDOW_CLASS_NAME: windows.LPCSTR = "SOFTSRV_WC";
 var raw_input_buffer: [@sizeOf(win32.RAWINPUT)]u8 = undefined;
 
 pub const Window = struct {
-    allocator: std.mem.Allocator,
     handle: windows.HWND,
     info: *win32.BITMAPINFO,
-
-    bitmap: Bitmap,
 
     pub fn init(allocator: std.mem.Allocator, title: [*:0]const u8, width: i32, height: i32) !Window {
         const hInstance: windows.HINSTANCE = @ptrCast(win32.GetModuleHandleA(null));
@@ -99,19 +95,14 @@ pub const Window = struct {
         // store info and handle
         _ = win32.ShowWindow(handle, win32.SW_SHOW);
 
-        const bitmap = try Bitmap.init(allocator, @bitCast(width), @bitCast(height));
-
         return Window{
-            .allocator = allocator,
             .handle = handle,
             .info = info,
-            .bitmap = bitmap,
         };
     }
 
-    pub fn deinit(self: *Window) void {
-        defer self.bitmap.deinit();
-        defer self.allocator.destroy(self.info);
+    pub fn deinit(self: *Window, allocator: std.mem.Allocator) void {
+        defer allocator.destroy(self.info);
 
         _ = win32.ShowWindow(self.handle, win32.SW_HIDE);
         if (win32.DestroyWindow(self.handle) == 0) {
@@ -126,26 +117,26 @@ pub const Window = struct {
         }
     }
 
-    pub fn present(self: *Window) void {
+    pub fn present(self: *Window, bitmap: Bitmap) void {
         const dc = win32.GetDC(self.handle);
 
         const scanlines = win32.SetDIBitsToDevice(
             dc,
             0,
             0,
-            self.bitmap.width,
-            self.bitmap.height,
+            bitmap.width,
+            bitmap.height,
             0,
             0,
             0,
-            self.bitmap.height,
-            self.bitmap.buffer.ptr,
+            bitmap.height,
+            bitmap.buffer.ptr,
             self.info,
             win32.DIB_RGB_COLORS,
         );
         _ = scanlines;
 
-        // if (scanlines == 0 and self.bitmap.height != 0) {
+        // if (scanlines == 0 and bitmap.height != 0) {
         //     const last_error = win32.GetLastError();
         //     std.debug.print("SetDIBitsToDevice error: {}\n", .{last_error});
         // }
@@ -170,7 +161,7 @@ pub const Window = struct {
         msg: windows.UINT,
         wParam: windows.WPARAM,
         lParam: windows.LPARAM,
-    ) callconv(WINAPI) windows.LRESULT {
+    ) callconv(windows.WINAPI) windows.LRESULT {
         const input = platform.input;
         switch (msg) {
             win32.WM_CLOSE => {

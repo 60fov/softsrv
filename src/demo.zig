@@ -19,10 +19,10 @@ pub fn main() !void {
     defer fb.deinit();
 
     allura = try softsrv.Image.loadPPM(allocator, "assets/allura.ppm");
-    defer allura.deinit();
+    defer allura.deinit(allocator);
 
     font = try softsrv.font.BitmapFont.load(allocator, "assets/fonts/cure.bdf");
-    defer font.deinit();
+    defer font.deinit(allocator);
 
     var update_freq = Freq.init(framerate);
     var log_freq = Freq.init(1);

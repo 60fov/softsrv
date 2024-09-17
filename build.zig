@@ -24,9 +24,14 @@ pub fn build(b: *Build) void {
 
     systemDep(b, demo_exe);
 
-    const demo_step = b.step("demo", "run softsrv demo");
+    const demo_build_step = b.step("demo", "build demo");
+    const demo_build = b.addInstallArtifact(demo_exe, .{});
+    demo_build_step.dependOn(&demo_build.step);
+
+    const demo_run_step = b.step("demo-run", "run softsrv demo");
     const run_demo = b.addRunArtifact(demo_exe);
-    demo_step.dependOn(&run_demo.step);
+    demo_run_step.dependOn(&demo_build.step);
+    demo_run_step.dependOn(&run_demo.step);
 
     // tests
     const tests = b.addTest(.{
@@ -37,8 +42,14 @@ pub fn build(b: *Build) void {
 
     systemDep(b, tests);
 
-    b.installArtifact(tests);
+    // check
+    const demo_check = b.step("check-demo", "check if demo compiles");
+    demo_check.dependOn(&demo_exe.step);
 
+    const check = b.step("check", "check on build (for zls)");
+    check.dependOn(demo_check);
+
+    // test
     const run_tests = b.addRunArtifact(tests);
     // TODO ??? https://zig.guide/build-system/zig-build
     // run_tests.step.dependOn(b.getInstallStep());
@@ -48,15 +59,22 @@ pub fn build(b: *Build) void {
 }
 
 fn systemDep(b: *Build, compile: *Build.Step.Compile) void {
-    compile.linkLibC();
-
-    if (b.host.result.os.tag == std.Target.Os.Tag.windows) {
-        // compile.linkSystemLibrary("gdi32");
-    } else if (b.host.result.os.tag == std.Target.Os.Tag.macos) {
-        // TODO mac build
-        compile.addCSourceFile(.{
-            .file = .{ .path = "src/system/osx.m" },
-            .flags = &.{"-framework Cocoa"},
-        });
+    switch (b.host.result.os.tag) {
+        .windows => {
+            compile.linkLibC();
+        },
+        .linux => {
+            compile.linkLibC();
+            compile.linkSystemLibrary("xcb");
+            compile.linkSystemLibrary("xcb-shm");
+        },
+        .macos => {
+            // TODO mac build
+            compile.addCSourceFile(.{
+                .file = .{ .path = "src/system/osx.m" },
+                .flags = &.{"-framework Cocoa"},
+            });
+        },
+        else => @panic("unhandled os"),
     }
 }

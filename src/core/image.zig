@@ -3,8 +3,6 @@ const std = @import("std");
 const BufferedReader = @import("io.zig").BufferedReader;
 
 pub const Bitmap = struct {
-    allocator: std.mem.Allocator,
-
     width: u32,
     height: u32,
     buffer: []u8,
@@ -14,12 +12,11 @@ pub const Bitmap = struct {
             .width = w,
             .height = h,
             .buffer = try allocator.alloc(u8, w * h * 3), // TODO hard code bit depth
-            .allocator = allocator,
         };
     }
 
-    pub fn deinit(self: Bitmap) void {
-        self.allocator.free(self.buffer);
+    pub fn deinit(self: Bitmap, allocator: std.mem.Allocator) void {
+        allocator.free(self.buffer);
     }
 
     pub fn clear(self: *Bitmap) void {
