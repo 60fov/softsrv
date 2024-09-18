@@ -125,6 +125,7 @@ pub fn text(fb: *Framebuffer, str: []const u8, font: BitmapFont, x: i32, y: i32)
     }
 }
 
+// TODO optimize (holy ish this is slow, i think, compiler might opti, plus more bytes cause 32 bpp)
 pub fn rect(fb: *Framebuffer, x: i32, y: i32, w: i32, h: i32, r: u8, g: u8, b: u8) void {
     const uw: usize = @intCast(w);
     const uh: usize = @intCast(h);

@@ -22,6 +22,7 @@ pub const Keyboard = struct {
     // TODO scan-codes >
     // TODO switch to constants
     pub const Keycode = enum(u8) {
+        UNKNOWN = 0,
         KC_LBUTTON = 0x01, // Left mouse button
         KC_RBUTTON = 0x02, // Right mouse button
         KC_CANCEL = 0x03, // Control-break processing
