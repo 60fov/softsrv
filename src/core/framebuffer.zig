@@ -67,9 +67,10 @@ pub fn blit_bgr(self: *Framebuffer, bitmap: *Bitmap) void {
 // ideally @ comptime
 pub fn blit(self: *Framebuffer, bitmap: *Bitmap) void {
     switch (builtin.os.tag) {
-        std.Target.Os.Tag.windows => blit_bgr(self, bitmap),
-        std.Target.Os.Tag.macos => blit_rgb(self, bitmap),
-        else => unreachable,
+        .windows => blit_bgr(self, bitmap),
+        .macos => blit_rgb(self, bitmap),
+        .linux => blit_rgb(self, bitmap),
+        else => @compileError("unsupported"),
     }
 }
 
