@@ -13,7 +13,7 @@ const SupportedSystem = enum {
     // macos,
 };
 
-const system = switch (builtin.os.tag) {
+const system: SupportedSystem = switch (builtin.os.tag) {
     .windows => .windows,
     .linux => .linux,
     // .macos => .macos,
@@ -23,7 +23,6 @@ const system = switch (builtin.os.tag) {
 const platform = switch (system) {
     .windows => @import("platform/windows.zig"),
     .linux => @import("platform/linux.zig"),
-    else => unreachable,
 };
 
 var should_quit: bool = false;
@@ -31,13 +30,20 @@ var window: platform.Window = undefined;
 var bitmap: Bitmap = undefined;
 
 pub fn init(allocator: Allocator, title: []const u8, w: u32, h: u32) !void {
-    bitmap = try Bitmap.init(allocator, w, h);
     window = try platform.Window.init(
         allocator,
         @ptrCast(title),
         @intCast(w),
         @intCast(h),
     );
+    bitmap = switch (system) {
+        .windows => try Bitmap.init(allocator, w, h),
+        .linux => Bitmap{
+            .buffer = window.shm_info.shmaddr[0..(w * h * 3)],
+            .width = w,
+            .height = h,
+        },
+    };
 }
 
 pub fn deinit(allocator: Allocator) void {

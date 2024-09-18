@@ -66,8 +66,7 @@ fn systemDep(b: *Build, compile: *Build.Step.Compile) void {
         .linux => {
             compile.linkLibC();
             compile.linkSystemLibrary("xcb");
-            compile.linkSystemLibrary("egl");
-            // compile.linkSystemLibrary("GLESv2");
+            compile.linkSystemLibrary("xcb-shm");
         },
         .macos => {
             // TODO mac build
