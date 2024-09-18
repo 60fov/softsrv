@@ -20,7 +20,7 @@ depth: []f64,
 
 pub fn init(allocator: std.mem.Allocator, width: u32, height: u32) !Framebuffer {
     const depth_buffer_size: usize = width * height;
-    const color_buffer_size: usize = depth_buffer_size * 3; // TODO hard code bit depth
+    const color_buffer_size: usize = depth_buffer_size * 4; // TODO hard code bit depth
 
     return Framebuffer{
         .width = @bitCast(width),
@@ -40,15 +40,15 @@ pub fn clear(self: *Framebuffer) void {
     const size: usize = @intCast(self.width * self.height);
 
     for (0..size) |i| {
-        for (0..3) |j| {
-            self.color[i * 3 + j] = 0; // TODO hard code bit depth
+        for (0..4) |j| {
+            self.color[i * 4 + j] = 0; // TODO hard code bit depth
         }
         self.depth[i] = 0;
     }
 }
 
 pub fn blit_rgb(self: *Framebuffer, bitmap: *Bitmap) void {
-    const size: usize = @intCast(self.width * self.height * 3); // TODO hard code bit depth
+    const size: usize = @intCast(self.width * self.height * 4); // TODO hard code bit depth
     for (0..size) |i| {
         bitmap.buffer[i] = self.color[i];
     }
@@ -57,8 +57,8 @@ pub fn blit_rgb(self: *Framebuffer, bitmap: *Bitmap) void {
 pub fn blit_bgr(self: *Framebuffer, bitmap: *Bitmap) void {
     const size: usize = @intCast(self.width * self.height);
     for (0..size) |i| {
-        for (0..3) |j| { // TODO hard code bit depth
-            bitmap.buffer[i * 3 + j] = self.color[i * 3 + (2 - j)]; // TODO hard code bit depth
+        for (0..4) |j| { // TODO hard code bit depth
+            bitmap.buffer[i * 4 + j] = self.color[i * 4 + (3 - j)]; // TODO hard code bit depth
         }
     }
 }

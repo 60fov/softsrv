@@ -39,7 +39,7 @@ pub fn init(allocator: Allocator, title: []const u8, w: u32, h: u32) !void {
     bitmap = switch (system) {
         .windows => try Bitmap.init(allocator, w, h),
         .linux => Bitmap{
-            .buffer = window.shm_info.shmaddr[0..(w * h * 3)],
+            .buffer = window.shm_info.shmaddr[0..(w * h * 4)],
             .width = w,
             .height = h,
         },

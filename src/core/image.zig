@@ -11,7 +11,7 @@ pub const Bitmap = struct {
         return Bitmap{
             .width = w,
             .height = h,
-            .buffer = try allocator.alloc(u8, w * h * 3), // TODO hard code bit depth
+            .buffer = try allocator.alloc(u8, w * h * 4), // TODO hard code bit depth
         };
     }
 
@@ -20,7 +20,7 @@ pub const Bitmap = struct {
     }
 
     pub fn clear(self: *Bitmap) void {
-        const size = self.width * self.height * 3; // TODO hard code bit depth
+        const size = self.width * self.height * 4; // TODO hard code bit depth
         for (0..size) |i| {
             self.color[i] = 0;
         }
@@ -45,7 +45,8 @@ const PPMError = error{
     UnexpectedEOF,
 };
 
-// TODO is there a better way? (PEG grammar for ppm, jk, jk... unless 🤨)
+// TODO rewrite
+// TODO is there a better way? (the answer is yes) (PEG grammar for ppm, jk, jk... unless 🤨)
 pub fn loadPPM(allocator: std.mem.Allocator, path: []const u8) !Bitmap {
     const file = try std.fs.cwd().openFile(path, .{ .mode = .read_only });
     defer file.close();
@@ -55,12 +56,14 @@ pub fn loadPPM(allocator: std.mem.Allocator, path: []const u8) !Bitmap {
     var height: u32 = undefined;
     var max_val: u16 = undefined;
 
-    const reader_buffer: []u8 = try allocator.alloc(u8, 4096);
+    // const reader_buffer: []u8 = try allocator.alloc(u8, 4096);
+    const reader_buffer: []u8 = try file.readToEndAlloc(allocator, 1024 * 1024 * 16);
+
     defer allocator.free(reader_buffer);
-    var read_size = try file.read(reader_buffer);
+    // const read_size = try file.read(reader_buffer);
 
     var reader = BufferedReader{ .buffer = reader_buffer };
-    if (read_size < 2) return PPMError.UnexpectedEOF;
+    // if (read_size < 2) return PPMError.UnexpectedEOF;
 
     _ = reader.readIntoBuffer(&magic_number);
 
@@ -88,14 +91,21 @@ pub fn loadPPM(allocator: std.mem.Allocator, path: []const u8) !Bitmap {
 
     var bitmap = try Bitmap.init(allocator, width, height);
 
-    // TODO could have reach end of buffer but not file, which is a bug kinda
     const remaining_buffer = reader.peekToEnd();
-    @memcpy(bitmap.buffer[0..remaining_buffer.len], remaining_buffer);
-    read_size = remaining_buffer.len;
-    // std.debug.print("read {} remaining bytes from reader into bitmap buffer\n", .{read_size});
 
-    read_size = try file.read(bitmap.buffer[read_size..]);
-    // std.debug.print("read {} bytes from file into bitmap buffer\n", .{read_size});
+    var fbs = std.io.fixedBufferStream(remaining_buffer);
+    const r = fbs.reader();
+    var rgb: [3]u8 = undefined;
+    std.debug.print("remaining buffer {any}\n", .{r.read(&rgb)});
+    var i: usize = 0;
+    while (r.read(&rgb)) |size| {
+        const start = i * 4;
+        // const end = start + 3;
+        @memcpy(bitmap.buffer[start..], &rgb);
+        bitmap.buffer[start + 3] = 0;
+        if (size < 3) break;
+        i += 1;
+    } else |_| {}
 
     return bitmap;
 }
