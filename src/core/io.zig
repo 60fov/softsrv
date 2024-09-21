@@ -3,13 +3,15 @@ pub const BufferedReader = struct {
     pos: usize = 0,
 
     /// returns total bytes read
-    pub fn readIntoBuffer(self: *BufferedReader, buffer: []u8) usize {
-        const start = self.pos;
-        const end = if (self.pos + buffer.len > self.buffer.len) self.buffer.len else buffer.len;
+    pub fn readIntoBuffer(self: *BufferedReader, dest: []u8) !usize {
+        const size = @min(dest.len, self.buffer.len - self.pos);
+        const end = self.pos + size;
+        if (end >= self.buffer.len) return error.EOF;
 
+        @memcpy(dest[0..size], self.buffer[self.pos..end]);
         self.pos = end;
-        @memcpy(buffer[0..buffer.len], self.buffer[start..end]);
-        return end - start;
+
+        return size;
     }
 
     pub fn eatByte(self: *BufferedReader) ![]u8 {

@@ -260,9 +260,11 @@ pub fn mouse() Mouse {
     return _mouse;
 }
 
+/// call at the end of update function
 pub fn update() void {
-    // for (void)
-
+    for (&_keyboard.keys) |*key| {
+        key.just = false;
+    }
 }
 
 pub const InputQueue = struct {

@@ -28,7 +28,7 @@ pub const Bitmap = struct {
 };
 
 // TODO TGA, BMP
-
+// TODO fix
 pub fn load(path: []const u8) !Bitmap {
     const ext = std.fs.path.extension(path);
 
@@ -45,8 +45,7 @@ const PPMError = error{
     UnexpectedEOF,
 };
 
-// TODO rewrite
-// TODO is there a better way? (the answer is yes) (PEG grammar for ppm, jk, jk... unless 🤨)
+// TODO is there a better way? (PEG grammar for ppm, jk, jk... unless 🤨)
 pub fn loadPPM(allocator: std.mem.Allocator, path: []const u8) !Bitmap {
     const file = try std.fs.cwd().openFile(path, .{ .mode = .read_only });
     defer file.close();
@@ -56,54 +55,35 @@ pub fn loadPPM(allocator: std.mem.Allocator, path: []const u8) !Bitmap {
     var height: u32 = undefined;
     var max_val: u16 = undefined;
 
-    // const reader_buffer: []u8 = try allocator.alloc(u8, 4096);
-    const reader_buffer: []u8 = try file.readToEndAlloc(allocator, 1024 * 1024 * 16);
-
-    defer allocator.free(reader_buffer);
-    // const read_size = try file.read(reader_buffer);
+    const reader_buffer: []u8 = try file.readToEndAlloc(std.heap.page_allocator, 1024 * 1024 * 16);
+    defer std.heap.page_allocator.free(reader_buffer);
 
     var reader = BufferedReader{ .buffer = reader_buffer };
-    // if (read_size < 2) return PPMError.UnexpectedEOF;
 
-    _ = reader.readIntoBuffer(&magic_number);
+    _ = try reader.readIntoBuffer(&magic_number);
 
     if (!std.mem.eql(u8, &magic_number, "P6")) {
         return PPMError.UnsupportedMagicNumber;
     }
 
     reader.skipWhitespace();
-
     width = try std.fmt.parseInt(@TypeOf(width), reader.readUntilWhitespace(), 10);
-
     reader.skipWhitespace();
-
     height = try std.fmt.parseInt(@TypeOf(height), reader.readUntilWhitespace(), 10);
-
     reader.skipWhitespace();
-
     max_val = try std.fmt.parseInt(@TypeOf(max_val), reader.readUntilWhitespace(), 10);
-
     reader.skipWhitespace();
-
     std.debug.print("width {d}, height {d}, max_val {d}\n", .{ width, height, max_val });
-
-    reader.skipWhitespace();
 
     var bitmap = try Bitmap.init(allocator, width, height);
 
-    const remaining_buffer = reader.peekToEnd();
-
-    var fbs = std.io.fixedBufferStream(remaining_buffer);
-    const r = fbs.reader();
     var rgb: [3]u8 = undefined;
-    std.debug.print("remaining buffer {any}\n", .{r.read(&rgb)});
     var i: usize = 0;
-    while (r.read(&rgb)) |size| {
+    while (reader.readIntoBuffer(&rgb)) |_| {
         const start = i * 4;
         // const end = start + 3;
-        @memcpy(bitmap.buffer[start..], &rgb);
+        @memcpy(bitmap.buffer[start..][0..3], &rgb);
         bitmap.buffer[start + 3] = 0;
-        if (size < 3) break;
         i += 1;
     } else |_| {}
 

@@ -211,6 +211,10 @@ pub const Window = struct {
     }
 
     pub fn poll(self: *const Window) void {
+        if (c.xcb_connection_has_error(self.connection) == c.XCB_CONN_ERROR) {
+            platform.quit();
+            return;
+        }
         var xcb_event = c.xcb_poll_for_event(self.connection);
         while (xcb_event != null) {
             const kind: WindowEventKind = @enumFromInt(xcb_event.*.response_type & 0b0111_1111);
@@ -248,6 +252,8 @@ fn keysym2code(keysym: u32) input.Keyboard.Keycode {
     return switch (keysym) {
         c.XKB_KEY_Up => .KC_UP,
         c.XKB_KEY_Down => .KC_DOWN,
+        c.XKB_KEY_Left => .KC_LEFT,
+        c.XKB_KEY_Right => .KC_RIGHT,
         c.XKB_KEY_space => .KC_SPACE,
         else => .UNKNOWN,
     };
