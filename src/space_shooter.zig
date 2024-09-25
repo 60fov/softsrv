@@ -1,29 +1,47 @@
+// part 1
 // create a simple arcade space shooter
 // [x] draw everything with sprites
 // [x] a player character that can move and shoot
 // [x] 2 enemy types
 // [x] projectiles that collide with objects (treating everything a circles is fine)
-// [ ] make a solid effort for the game to feel good and be interesting.
+// [x] make a solid effort for the game to feel good and be interesting.
 // [ ] I recommend using some sound effects.
 // [x] entity tagged union with sub types (recommend having a base struct that all of the others can derive from)
 // [x] You will need to maintain buffers for each type of entity.
-// [~] if you need one entity to reference another entity, req buffers of entities to be stable (hint: freelists)?
+// [x] if you need one entity to reference another entity, req buffers of entities to be stable (hint: freelists)?
+
+// part 2
+// [ ] create a more robust physics system
+// [ ] implement broad-phase collision detection to efficiently rule out many collisions,
+// [~] implement narrow-phase to see which of the potential collisions actually happened.
+// [ ] create an acceleration structure such as a grid so that you can perform broad-phase collision detection
 
 // So tips:
 // [x] Use an arena for to store data for a round of the game.
-// [ ] fill a buffer with collision data, and then determine how to resolve collision.
+// [ ] fill a buffer with collision data, and then determine how to resolve collision
+// [ ] when you're inserting bodies into the cell, don't check each body against every cell
+// [ ] a body may overlap multiple cells so its important you don't just compare the point against the cell.
 
-// that could be a fun game mechanic, phases were certain enemies during time frame
-// with a enemy limit so keep as many weaker enemies alive while destroying stronger ones
-// weaker and stonger probably being projectile count, speed
-// goal live as long as possible
+// struct GridCell {
+//     vec2 min;
+//     vec2 max;
+//     DynamicArray<Entity *> entities;
+// };
 
-// then i could do the solution below for projectiles
-// have a dynamic list of those and a non-growable list of enemies
+// struct PhysicsGrid {
+//     int32 rows;
+//     int32 columns;
 
-// gameplay idea
-// limited ammo, if you run out you lose, gain ammo on destroy
+//     float32 cellSize; // each cell is square.
 
+//     // bounds of the entire grid
+//     // this will help determine how many rows and columns
+//     // you have given the cellSize.
+//     vec2 min;
+//     vec2 max;
+
+//     DynamicArray<GridCell> cells;
+// };
 const std = @import("std");
 const softsrv = @import("softsrv.zig");
 const input = @import("core/input.zig");
@@ -188,45 +206,44 @@ fn update(us: i64) void {
                             .speed = 0,
                             .alive = true,
                             .kind = .{ .bullet = .{
-                                .parent = player,
+                                .parent_kind = .player,
+                                .parent_id = 0,
                             } },
                         };
                         shooter.bullet_list.push(new_bullet);
                     }
                 }
 
-                { // enemy logic
-                    // spawning
-                    {
-                        const rand = shooter.prng.random();
-                        if (shooter.spawn_timer.read() > shooter.spawn_freq) {
-                            shooter.spawn_timer.reset();
-                            const x = rand.float(f32) * width;
-                            const y = rand.float(f32) * height / 2;
-                            if (rand.boolean()) {
-                                const new_enemy = Entity{
-                                    .pos = .{ x, y },
-                                    .vel = .{ 200, 0 },
-                                    .speed = 0,
-                                    .alive = true,
-                                    .kind = .{ .enemy1 = .{
-                                        .last_move = 0,
-                                        .freq = shooter.prng.random().intRangeAtMostBiased(i64, std.time.us_per_s / 2, std.time.us_per_s * 1),
-                                    } },
-                                };
-                                shooter.enemy1_list.push(new_enemy);
-                            } else {
-                                const new_enemy = Entity{
-                                    .pos = .{ x, y },
-                                    .vel = .{ 0, 0 },
-                                    .speed = 0,
-                                    .alive = true,
-                                    .kind = .{ .enemy2 = .{
-                                        .spawn_time = time,
-                                    } },
-                                };
-                                shooter.enemy2_list.push(new_enemy);
-                            }
+                { // spawning
+                    const rand = shooter.prng.random();
+                    if (shooter.spawn_timer.read() > shooter.spawn_freq) {
+                        shooter.spawn_timer.reset();
+                        const x = rand.float(f32) * width;
+                        const y = rand.float(f32) * height / 2;
+                        if (rand.boolean()) {
+                            const new_enemy = Entity{
+                                .pos = .{ x, y },
+                                .vel = .{ 200, 0 },
+                                .speed = 0,
+                                .alive = true,
+                                .kind = .{ .enemy1 = .{
+                                    .last_move = 0,
+                                    .freq = shooter.prng.random().intRangeAtMostBiased(i64, std.time.us_per_s / 2, std.time.us_per_s * 1),
+                                } },
+                            };
+                            shooter.enemy1_list.push(new_enemy);
+                        } else {
+                            const new_enemy = Entity{
+                                .pos = .{ x, y },
+                                .vel = .{ 0, 0 },
+                                .speed = 0,
+                                .alive = true,
+                                .kind = .{ .enemy2 = .{
+                                    .spawn_time = time,
+                                    .shoot_time = time,
+                                } },
+                            };
+                            shooter.enemy2_list.push(new_enemy);
                         }
                     }
                 }
@@ -235,15 +252,13 @@ fn update(us: i64) void {
                 defer live_enemy1_idx_list.deinit();
                 const live_enemy2_idx_list = shooter.enemy2_list.getLiveIdxList() catch unreachable;
                 defer live_enemy2_idx_list.deinit();
-                const live_bullet_idx_list = shooter.bullet_list.getLiveIdxList() catch unreachable;
-                defer live_bullet_idx_list.deinit();
 
-                {
+                { // enemy logic
                     for (live_enemy1_idx_list.items) |idx| {
                         const enemy = &shooter.enemy1_list.list.items[idx];
                         if (enemy.alive) {
                             const enemy_data = &enemy.kind.enemy1;
-                            // enemy 1 move logic
+                            // enemy 1 move n' shoot logic
                             const time_since_last_move = time - enemy_data.last_move;
                             if (time_since_last_move >= enemy_data.freq) {
                                 enemy_data.last_move = time;
@@ -251,21 +266,63 @@ fn update(us: i64) void {
                                 if (rand.boolean()) {
                                     enemy.vel[0] *= -1;
                                 }
+                                const new_bullet = Entity{
+                                    .pos = enemy.pos,
+                                    .vel = .{ 0, 700 },
+                                    .speed = 0,
+                                    .alive = true,
+                                    .kind = .{ .bullet = .{
+                                        .parent_kind = .enemy1,
+                                        .parent_id = idx,
+                                    } },
+                                };
+                                shooter.bullet_list.push(new_bullet);
                             }
                         }
                     }
                     for (live_enemy2_idx_list.items) |idx| {
                         const enemy = &shooter.enemy2_list.list.items[idx];
                         if (enemy.alive) {
+                            // enemy2 move logic
                             const enemy_data = &enemy.kind.enemy2;
                             const time_since_spawn: f32 = @floatFromInt(time - enemy_data.spawn_time);
                             const theta = time_since_spawn / (std.time.us_per_s) * 10;
                             const radius: f32 = shooter.prng.random().float(f32) * 500 + 100;
                             enemy.vel[0] = @cos(theta) * radius;
                             enemy.vel[1] = @sin(theta) * radius;
+                            // enemy2 shoot logic
+                            const time_since_shoot: f32 = @floatFromInt(time - enemy_data.shoot_time);
+                            if (time_since_shoot > std.time.us_per_s) {
+                                enemy_data.shoot_time = time;
+                                const orb_count: usize = @intFromFloat(time_since_spawn / std.time.us_per_s);
+                                for (0..orb_count) |orb_idx| {
+                                    const tg = std.math.pi / 2.0;
+                                    const ts = std.math.pi / 4.0;
+                                    const ti = tg / @as(f32, @floatFromInt((orb_count + 1)));
+                                    const to = ti * @as(f32, @floatFromInt((orb_idx + 1)));
+                                    const orb_theta = ts + to;
+                                    const speed = 400;
+                                    const vx = @cos(orb_theta) * speed;
+                                    const vy = @sin(orb_theta) * speed;
+                                    const new_bullet = Entity{
+                                        .pos = enemy.pos,
+                                        .vel = .{ vx, vy },
+                                        .speed = 0,
+                                        .alive = true,
+                                        .kind = .{ .bullet = .{
+                                            .parent_kind = .enemy2,
+                                            .parent_id = idx,
+                                        } },
+                                    };
+                                    shooter.bullet_list.push(new_bullet);
+                                }
+                            }
                         }
                     }
                 }
+
+                const live_bullet_idx_list = shooter.bullet_list.getLiveIdxList() catch unreachable;
+                defer live_bullet_idx_list.deinit();
 
                 { // projectile logic
                 }
@@ -290,18 +347,29 @@ fn update(us: i64) void {
                         // bullet-bounds
                         bullet.alive = bullet.inAABB(Shooter.bounds);
                         if (!bullet.alive) continue;
+                        const bullet_data = &bullet.kind.bullet;
                         // enemy-player.bullet
-                        for (live_enemy1_idx_list.items) |idx| {
-                            const enemy = &shooter.enemy1_list.list.items[idx];
-                            if (Entity.collision(bullet, enemy)) {
-                                enemy.alive = false;
-                            }
-                        }
-                        for (live_enemy2_idx_list.items) |idx| {
-                            const enemy = &shooter.enemy2_list.list.items[idx];
-                            if (Entity.collision(bullet, enemy)) {
-                                enemy.alive = false;
-                            }
+                        switch (bullet_data.parent_kind) {
+                            .player => {
+                                for (live_enemy1_idx_list.items) |idx| {
+                                    const enemy = &shooter.enemy1_list.list.items[idx];
+                                    if (Entity.collision(bullet, enemy)) {
+                                        enemy.alive = false;
+                                    }
+                                }
+                                for (live_enemy2_idx_list.items) |idx| {
+                                    const enemy = &shooter.enemy2_list.list.items[idx];
+                                    if (Entity.collision(bullet, enemy)) {
+                                        enemy.alive = false;
+                                    }
+                                }
+                            },
+                            .enemy1, .enemy2 => {
+                                if (Entity.collision(bullet, player)) {
+                                    player.alive = false;
+                                }
+                            },
+                            else => {},
                         }
                     }
 
@@ -418,15 +486,11 @@ const Entity = struct {
     };
     const Enemy2Data = struct {
         spawn_time: i64,
+        shoot_time: i64,
     };
     const BulletData = struct {
-        // is this still valid?
-        // if we split enemy1 from 2 as lists
-        // do we need to keep track of which list?
-        // no right since it's a pointer
-        // but if its an idx then yes.
-        // unless the indicies are for the ent_buffer
-        parent: *Entity,
+        parent_kind: EntityKind,
+        parent_id: usize,
     };
 
     pos: Vec2 = .{ 0, 0 },
