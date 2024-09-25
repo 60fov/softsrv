@@ -36,7 +36,7 @@ const Collision = @import("core/math.zig").Collision;
 
 const width = 800;
 const height = 600;
-const framerate = 20;
+const framerate = 60;
 
 // TODO consider putting in struct (namespace)
 var memory: []u8 = undefined;
@@ -206,10 +206,13 @@ fn update(us: i64) void {
                             if (rand.boolean()) {
                                 const new_enemy = Entity{
                                     .pos = .{ x, y },
-                                    .vel = .{ 0, 0 },
+                                    .vel = .{ 200, 0 },
                                     .speed = 0,
                                     .alive = true,
-                                    .kind = .{ .enemy1 = .{} },
+                                    .kind = .{ .enemy1 = .{
+                                        .last_move = 0,
+                                        .freq = shooter.prng.random().intRangeAtMostBiased(i64, std.time.us_per_s / 2, std.time.us_per_s * 1),
+                                    } },
                                 };
                                 shooter.enemy1_list.push(new_enemy);
                             } else {
@@ -218,7 +221,9 @@ fn update(us: i64) void {
                                     .vel = .{ 0, 0 },
                                     .speed = 0,
                                     .alive = true,
-                                    .kind = .{ .enemy2 = .{} },
+                                    .kind = .{ .enemy2 = .{
+                                        .spawn_time = time,
+                                    } },
                                 };
                                 shooter.enemy2_list.push(new_enemy);
                             }
@@ -226,29 +231,41 @@ fn update(us: i64) void {
                     }
                 }
 
-                // we have to have the alive bullets that were made unalive this frame
-                // prof question, how do you manage free list and updating only the active items
-                // const live_bullet_list = getAliveBullets()
-
-                // also another question, (even though i think i have a solution)
-                // how do you manage ids/idxs between these different lists?
-                // if the entities stored their id on creation then that would solve this problem
-
-                // this is a mess but i think entities keeping track of their own ids
-                // solves alot of the reasoning about this problem
-
                 const live_enemy1_idx_list = shooter.enemy1_list.getLiveIdxList() catch unreachable;
+                defer live_enemy1_idx_list.deinit();
                 const live_enemy2_idx_list = shooter.enemy2_list.getLiveIdxList() catch unreachable;
+                defer live_enemy2_idx_list.deinit();
                 const live_bullet_idx_list = shooter.bullet_list.getLiveIdxList() catch unreachable;
+                defer live_bullet_idx_list.deinit();
 
-                const live_enemy_idx_list = std.mem.concat(arena.allocator(), usize, &.{
-                    live_enemy1_idx_list.items,
-                    live_enemy2_idx_list.items,
-                }) catch unreachable;
-                const live_ent_idx_list = std.mem.concat(arena.allocator(), usize, &.{
-                    live_enemy_idx_list,
-                    live_bullet_idx_list.items,
-                }) catch unreachable;
+                {
+                    for (live_enemy1_idx_list.items) |idx| {
+                        const enemy = &shooter.enemy1_list.list.items[idx];
+                        if (enemy.alive) {
+                            const enemy_data = &enemy.kind.enemy1;
+                            // enemy 1 move logic
+                            const time_since_last_move = time - enemy_data.last_move;
+                            if (time_since_last_move >= enemy_data.freq) {
+                                enemy_data.last_move = time;
+                                const rand = shooter.prng.random();
+                                if (rand.boolean()) {
+                                    enemy.vel[0] *= -1;
+                                }
+                            }
+                        }
+                    }
+                    for (live_enemy2_idx_list.items) |idx| {
+                        const enemy = &shooter.enemy2_list.list.items[idx];
+                        if (enemy.alive) {
+                            const enemy_data = &enemy.kind.enemy2;
+                            const time_since_spawn: f32 = @floatFromInt(time - enemy_data.spawn_time);
+                            const theta = time_since_spawn / (std.time.us_per_s) * 10;
+                            const radius: f32 = shooter.prng.random().float(f32) * 500 + 100;
+                            enemy.vel[0] = @cos(theta) * radius;
+                            enemy.vel[1] = @sin(theta) * radius;
+                        }
+                    }
+                }
 
                 { // projectile logic
                 }
@@ -256,10 +273,18 @@ fn update(us: i64) void {
                 { // move things
                     for (shooter.ent_buffer) |*ent| {
                         ent.pos += ent.vel * @as(Vec2, @splat(dt));
+                        switch (ent.kind) {
+                            .enemy1, .enemy2, .player => {
+                                ent.pos[0] = std.math.clamp(ent.pos[0], 0, width - 32);
+                                ent.pos[1] = std.math.clamp(ent.pos[1], 0, height - 32);
+                            },
+                            else => {},
+                        }
                     }
                 }
 
                 { // collision
+                    // bullets
                     for (live_bullet_idx_list.items) |bullet_idx| {
                         const bullet = &shooter.bullet_list.list.items[bullet_idx];
                         // bullet-bounds
@@ -268,16 +293,12 @@ fn update(us: i64) void {
                         // enemy-player.bullet
                         for (live_enemy1_idx_list.items) |idx| {
                             const enemy = &shooter.enemy1_list.list.items[idx];
-                            // perf/semantic diff between these two?
-                            // enemy.alive = Entity.collision(bullet, enemy);
                             if (Entity.collision(bullet, enemy)) {
                                 enemy.alive = false;
                             }
                         }
                         for (live_enemy2_idx_list.items) |idx| {
                             const enemy = &shooter.enemy2_list.list.items[idx];
-                            // perf/semantic diff between these two?
-                            // enemy.alive = Entity.collision(bullet, enemy);
                             if (Entity.collision(bullet, enemy)) {
                                 enemy.alive = false;
                             }
@@ -293,24 +314,20 @@ fn update(us: i64) void {
                         shooter.phase = .reset;
                         break :clean_up;
                     }
-                    // this feels worse than separate loops for each, but have to test
-                    for (live_ent_idx_list) |idx| {
-                        const ent = shooter.ent_buffer[idx + 1];
-                        if (!ent.alive) {
-                            std.debug.print("clean up ent {}\n", .{ent});
-                            switch (ent.kind) {
-                                .player => unreachable,
-                                .enemy1 => {
-                                    shooter.enemy1_list.free_list.appendAssumeCapacity(idx);
-                                },
-                                .enemy2 => {
-                                    shooter.enemy2_list.free_list.appendAssumeCapacity(idx);
-                                },
-                                .bullet => {
-                                    shooter.bullet_list.free_list.appendAssumeCapacity(idx);
-                                },
-                            }
-                        }
+                    for (live_enemy1_idx_list.items) |idx| {
+                        const enemy = shooter.enemy1_list.list.items[idx];
+                        if (enemy.alive) continue;
+                        shooter.enemy1_list.freeIdx(idx);
+                    }
+                    for (live_enemy2_idx_list.items) |idx| {
+                        const enemy = shooter.enemy2_list.list.items[idx];
+                        if (enemy.alive) continue;
+                        shooter.enemy2_list.freeIdx(idx);
+                    }
+                    for (live_bullet_idx_list.items) |idx| {
+                        const enemy = shooter.bullet_list.list.items[idx];
+                        if (enemy.alive) continue;
+                        shooter.bullet_list.freeIdx(idx);
                     }
                 }
             },
@@ -395,8 +412,13 @@ const EntityKind = enum(u8) {
 const Entity = struct {
     const radius = 16;
     const PlayerData = struct {};
-    const Enemy1Data = struct {};
-    const Enemy2Data = struct {};
+    const Enemy1Data = struct {
+        last_move: i64,
+        freq: i64,
+    };
+    const Enemy2Data = struct {
+        spawn_time: i64,
+    };
     const BulletData = struct {
         // is this still valid?
         // if we split enemy1 from 2 as lists
@@ -452,6 +474,10 @@ const EntityList = struct {
         } else {
             std.debug.print("list push: failed @ capacity({})\n", .{self.list.capacity});
         }
+    }
+
+    fn freeIdx(self: *EntityList, idx: usize) void {
+        self.free_list.appendAssumeCapacity(idx);
     }
 
     fn getLiveIdxList(self: *const EntityList) !std.ArrayList(usize) {
