@@ -1,6 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const image = @import("image.zig");
+const platform = @import("platform.zig");
+
 const Bitmap = image.Bitmap;
 
 // TODO tests
@@ -19,8 +21,10 @@ color: []u8,
 depth: []f64,
 
 pub fn init(allocator: std.mem.Allocator, width: u32, height: u32) !Framebuffer {
-    const depth_buffer_size: usize = width * height;
-    const color_buffer_size: usize = depth_buffer_size * 4; // TODO hard code bit depth
+    // self dunce, clever is cringe
+    const buffer_dimensions = width * height;
+    const depth_buffer_size = buffer_dimensions;
+    const color_buffer_size = buffer_dimensions * 4; // elements_per_pixel (rgba)
 
     return Framebuffer{
         .width = @bitCast(width),
@@ -47,32 +51,51 @@ pub fn clear(self: *Framebuffer) void {
     }
 }
 
-pub fn blit_rgb(self: *Framebuffer, bitmap: *Bitmap) void {
-    const size: usize = @intCast(self.width * self.height * 4); // TODO hard code bit depth
+const BlitMode = enum(u8) {
+    rgb,
+    bgr,
+};
+
+// TODO enforce framebuffer dimension same as bitmap (or something)
+// ideally @ comptime
+pub fn blit_rgb(self: *Framebuffer, bitmap: *const Bitmap) void {
+    const size: usize = @intCast(self.width * self.height * 4); // TODO (un)hard code elements per pixel
     for (0..size) |i| {
         bitmap.buffer[i] = self.color[i];
     }
 }
-
-pub fn blit_bgr(self: *Framebuffer, bitmap: *Bitmap) void {
-    const size: usize = @intCast(self.width * self.height);
+// TODO where to alpha blend
+pub fn blit_bgr(self: *Framebuffer, bitmap: *const Bitmap) void {
+    const size: usize = @intCast(self.width * self.height); // TODO (un)hard code elements per pixel
     for (0..size) |i| {
-        for (0..4) |j| { // TODO hard code bit depth
-            bitmap.buffer[i * 4 + j] = self.color[i * 4 + (3 - j)]; // TODO hard code bit depth
+        // bitmap.buffer[i] = self.color[i];
+        for (0..3) |j| { // TODO (un)hard code elements per pixel
+            // const alpha = self.color[i * 4 + 3];
+            const alpha = 1;
+            // TODO (un)hard code elements per pixel
+            const bitmap_pixel_idx = i * 4 + j;
+            const self_pixel_idx = i * 4 + j;
+            bitmap.buffer[bitmap_pixel_idx] = self.color[self_pixel_idx] * alpha;
         }
     }
 }
 
-// TODO enforce framebuffer dimension same as bitmap (or something)
-// ideally @ comptime
-pub fn blit(self: *Framebuffer, bitmap: *Bitmap) void {
-    switch (builtin.os.tag) {
-        .windows => blit_bgr(self, bitmap),
-        .macos => blit_rgb(self, bitmap),
-        .linux => blit_rgb(self, bitmap),
-        else => @compileError("unsupported"),
-    }
-}
+// fn blit(self: *Framebuffer, comptime mode: BlitMode, bitmap: *const Bitmap) void {
+//     const size: usize = @intCast(self.width * self.height * 4); // TODO (un)hard code elements per pixel
+//     for (0..size) |i| {
+//         bitmap.buffer[i] = self.color[i];
+//         for (0..3) |j| { // TODO (un)hard code elements per pixel
+//             // const alpha = self.color[i * 4 + 3];
+//             const alpha = 1;
+//             // TODO (un)hard code elements per pixel
+//             const self_pixel_idx = switch (mode) {
+//                 .rgb => i * 4 + (2 - j),
+//                 .bgr => i * 4 + j,
+//             };
+//             bitmap.buffer[i * 3 + j] = self.color[self_pixel_idx] * alpha;
+//         }
+//     }
+// }
 
 test "framebuffer" {
     const expectEqual = std.testing.expectEqual;

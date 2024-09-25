@@ -13,7 +13,7 @@ const SupportedSystem = enum {
     // macos,
 };
 
-const system: SupportedSystem = switch (builtin.os.tag) {
+pub const system: SupportedSystem = switch (builtin.os.tag) {
     .windows => .windows,
     .linux => .linux,
     // .macos => .macos,
@@ -63,7 +63,12 @@ pub fn poll() void {
 }
 
 pub fn present(fb: *Framebuffer) void {
-    fb.blit(&bitmap);
+    switch (system) {
+        .windows => fb.blit_bgr(&bitmap),
+        .linux => fb.blit_rgb(&bitmap),
+        // .macos => self.blit(.rgb, &bitmap),
+    }
+
     window.present(bitmap);
 }
 
