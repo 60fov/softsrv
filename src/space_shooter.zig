@@ -139,7 +139,7 @@ pub fn main() !void {
         // the arena memory area can run out and crash program
         // this should be defined based on game state memory sizes
         const arena_mem_size = megabytes(8);
-        const scratch_mem_size = megabytes(1);
+        const scratch_mem_size = megabytes(4);
         const mem_size = persist_mem_size + arena_mem_size;
         memory = try allocator.alloc(u8, mem_size);
         scratch = try allocator.alloc(u8, scratch_mem_size);
@@ -348,23 +348,14 @@ fn update(us: i64) void {
                 }
 
                 { // collision
-                    // broad phase
-                    const cell_size = 128;
-                    const width_in_cells: usize = @round(@as(f32, width) / @as(f32, cell_size));
-                    const height_in_cells: usize = @round(@as(f32, height) / @as(f32, cell_size));
-                    const cell_count = width_in_cells * height_in_cells;
-                    const Cell = struct {
-                        ent_idx_list: std.ArrayList(usize),
+                    // bullet bounds check
+                    for (live_bullet_idx_list.items) |bullet_idx| {
+                        const bullet = &shooter.bullet_list.list.items[bullet_idx];
+                        bullet.alive = bullet.inAABB(Shooter.bounds);
+                    }
 
-                        fn getAABBFromCellIdx(cell_idx: usize) AABB {
-                            // TODO
-                            _ = cell_idx;
-                            return AABB{};
-                        }
-                    };
-                    const cell_buffer = scratch_arena.allocator().alloc(Cell, cell_count) catch unreachable;
-                    // const CellList = std.SinglyLinkedList(Cell);
-                    // var cell_list: CellList = .{};
+                    // broad phase
+                    var grid = BroadPhaseGrid.init(scratch_arena.allocator(), 128) catch unreachable;
 
                     // TODO weird zig type???
                     // const Cell = std.ArrayList(usize);
@@ -373,82 +364,76 @@ fn update(us: i64) void {
                     // why is cell a usize rather than ArrayList(usize)?
                     // }
 
-                    for (live_bullet_idx_list.items) |bullet_idx| {
-                        const bullet = shooter.bullet_list.list.items[bullet_idx];
-                        // check each corner of entity
-                        var corner_cell_hit_list = std.ArrayList(usize).initCapacity(scratch_arena.allocator(), 4) catch unreachable;
-                        defer corner_cell_hit_list.deinit();
+                    // collect the grid posiiton for each corner of ent
+                    for (shooter.ent_buffer, 0..) |ent, ent_idx| {
+                        var corner_buffer: [4]usize = undefined;
+                        var ent_cell_hit_list = std.ArrayListUnmanaged(usize).initBuffer(&corner_buffer);
+                        // would it be simpler to check bounds of box (this doesnt work if ent larger than a cell)
                         for (0..3) |c| {
                             const cx = c % 2;
                             const cy = c / 2;
-                            const ecx = bullet.pos[0] + @as(f32, @floatFromInt(cx * 32));
-                            const ecy = bullet.pos[1] + @as(f32, @floatFromInt(cy * 32));
-                            const ccx: usize = @intFromFloat(ecx / cell_size);
-                            const ccy: usize = @intFromFloat(ecy / cell_size);
-                            const cell_idx = ccy * width_in_cells + ccx;
-                            // don't put the same corner in the
-                            if (!sliceContains(usize, corner_cell_hit_list.items, cell_idx)) {
-                                corner_cell_hit_list.appendAssumeCapacity(cell_idx);
+                            const ecx = ent.pos[0] + @as(f32, @floatFromInt(cx * 32));
+                            const ecy = ent.pos[1] + @as(f32, @floatFromInt(cy * 32));
+                            const ccx: i32 = @intFromFloat(ecx / @as(f32, @floatFromInt(grid.cell_size)));
+                            const ccy: i32 = @intFromFloat(ecy / @as(f32, @floatFromInt(grid.cell_size)));
+                            if (ccx < 0 or ccx >= grid.width_in_cells or ccy < 0 or ccy >= grid.height_in_cells) continue;
+                            const cell_idx = @as(usize, @intCast(ccy)) * grid.width_in_cells + @as(usize, @intCast(ccx));
+                            // prevent cell duplication
+                            if (!sliceContains(usize, ent_cell_hit_list.items, cell_idx)) {
+                                ent_cell_hit_list.appendAssumeCapacity(cell_idx);
                             }
                         }
 
-                        for (corner_cell_hit_list.items, 0..) |cell_idx, i| {
-                            const cell = &cell_buffer[cell_idx];
-                            std.debug.print("iter: {}, cell idx: {}, cell: {}\n", .{ i, cell_idx, cell });
-                            // if (cell_buffer[cell_idx]) |*cell| {
-                            cell.ent_idx_list.append(bullet_idx) catch unreachable;
-                            // } else {
-                            // NOTE init function feels wrong here... (too implicit? unecessary abstraction?)
-                            // I want something like scratch_arena.createWithValue(Cell, .{...});
-                            // cool syntax might be (not-zig)
-                            // Cell @heap(scratch_arena) {
-                            //     ...
-                            // }
-                            // const node = scratch_arena.allocator().create(CellList.Node) catch unreachable;
-                            // node.* = CellList.Node{
-                            //     .data = Cell{
-                            //         .ent_idx_list = std.ArrayList(usize).init(scratch_arena.allocator()),
-                            //     },
-                            // };
-                            // cell_list.prepend(node);
-                            // }
+                        // push the current entity idx into cells that were collected previously
+                        for (ent_cell_hit_list.items) |cell_idx| {
+                            grid.push(cell_idx, ent_idx) catch unreachable;
                         }
                     }
 
-                    // bullets
-                    for (live_bullet_idx_list.items) |bullet_idx| {
-                        const bullet = &shooter.bullet_list.list.items[bullet_idx];
-                        // bullet-bounds
-                        bullet.alive = bullet.inAABB(Shooter.bounds);
-                        if (!bullet.alive) continue;
-                        const bullet_data = &bullet.kind.bullet;
-                        // enemy-player.bullet
-                        switch (bullet_data.parent_kind) {
-                            .player => {
-                                for (live_enemy1_idx_list.items) |idx| {
-                                    const enemy = &shooter.enemy1_list.list.items[idx];
-                                    if (Entity.collision(bullet, enemy)) {
-                                        enemy.alive = false;
-                                    }
+                    // narrow phase
+                    // for each cell
+                    // run collision check for each ent against other entities in cell
+                    for (grid.cell_list) |cell| {
+                        for (cell.ent_idx_list.items) |this_ent_idx| {
+                            const this_ent = &shooter.ent_buffer[this_ent_idx];
+                            if (!this_ent.alive) continue;
+                            // assuming that col(a,b) == col(b,a)
+                            // we could reduce checks
+                            // eg of abcde entities (ab, ac, ad, ae), (bc, bd, be), (cd, ce), (de)
+                            for (cell.ent_idx_list.items) |that_ent_idx| {
+                                const that_ent = &shooter.ent_buffer[that_ent_idx];
+                                if (!that_ent.alive) continue;
+                                if (this_ent_idx == that_ent_idx) continue;
+                                // this_ent/that_ent are alive and not the same
+                                // should this check happen later?
+                                if (!Entity.collision(this_ent, that_ent)) continue;
+                                switch (this_ent.kind) {
+                                    .bullet => |bullet_data| {
+                                        switch (that_ent.kind) {
+                                            // player x enemy.bullets
+                                            .player => {
+                                                if (bullet_data.parent_kind != .player) {
+                                                    that_ent.alive = false;
+                                                }
+                                            },
+                                            // player.bullets x enemy
+                                            .enemy1, .enemy2 => {
+                                                if (bullet_data.parent_kind == .player) {
+                                                    that_ent.alive = false;
+                                                }
+                                            },
+                                            // bullet x bullet
+                                            // .bullet => {},
+                                            else => {},
+                                        }
+                                    },
+                                    // player-enemy
+                                    // .player => {},
+                                    else => {},
                                 }
-                                for (live_enemy2_idx_list.items) |idx| {
-                                    const enemy = &shooter.enemy2_list.list.items[idx];
-                                    if (Entity.collision(bullet, enemy)) {
-                                        enemy.alive = false;
-                                    }
-                                }
-                            },
-                            .enemy1, .enemy2 => {
-                                if (Entity.collision(bullet, player)) {
-                                    player.alive = false;
-                                }
-                            },
-                            else => {},
+                            }
                         }
                     }
-
-                    // player-enemy
-                    // player-enemy.bullets
                 }
 
                 clean_up: {
@@ -544,6 +529,48 @@ fn update(us: i64) void {
     softsrv.platform.present(&fb);
 }
 
+// SECTION: broad phase collision accel struct
+const BroadPhaseGrid = struct {
+    const Cell = struct {
+        ent_idx_list: std.ArrayList(usize),
+
+        fn init(allocator: std.mem.Allocator) Cell {
+            return .{
+                .ent_idx_list = std.ArrayList(usize).init(allocator),
+            };
+        }
+    };
+
+    allocator: std.mem.Allocator,
+    cell_size: usize,
+    width_in_cells: usize,
+    height_in_cells: usize,
+    cell_count: usize,
+
+    cell_list: []Cell,
+
+    fn init(allocator: std.mem.Allocator, cell_size: usize) !BroadPhaseGrid {
+        const width_in_cells: usize = @intFromFloat(@ceil(@as(f32, width) / @as(f32, @floatFromInt(cell_size))));
+        const height_in_cells: usize = @intFromFloat(@ceil(@as(f32, height) / @as(f32, @floatFromInt(cell_size))));
+        const cell_count = width_in_cells * height_in_cells;
+        const cell_list = try allocator.alloc(Cell, cell_count);
+        for (cell_list) |*cell| {
+            cell.* = Cell.init(allocator);
+        }
+        return .{
+            .allocator = allocator,
+            .cell_size = cell_size,
+            .width_in_cells = width_in_cells,
+            .height_in_cells = height_in_cells,
+            .cell_count = cell_count,
+            .cell_list = cell_list,
+        };
+    }
+    fn push(self: *BroadPhaseGrid, cell_idx: usize, ent_idx: usize) !void {
+        try self.cell_list[cell_idx].ent_idx_list.append(ent_idx);
+    }
+};
+
 // SECTION: entity
 const EntityKind = enum(u8) {
     none,
@@ -587,9 +614,12 @@ const Entity = struct {
         return @abs(dv_len2) < max_dist2;
     }
 
+    fn getAABB(ent: *const Entity) AABB {
+        return AABB.fromXYRadius(ent.pos[0], ent.pos[1], radius);
+    }
+
     fn inAABB(ent: *const Entity, bounds: AABB) bool {
-        const a = AABB.fromXYRadius(ent.pos[0], ent.pos[1], radius);
-        return Collision.aabb(a, bounds);
+        return Collision.aabb(getAABB(ent), bounds);
     }
 };
 const EntityList = struct {
