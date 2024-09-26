@@ -11,37 +11,17 @@
 // [x] if you need one entity to reference another entity, req buffers of entities to be stable (hint: freelists)?
 
 // part 2
-// [ ] create a more robust physics system
-// [ ] implement broad-phase collision detection to efficiently rule out many collisions,
-// [~] implement narrow-phase to see which of the potential collisions actually happened.
-// [ ] create an acceleration structure such as a grid so that you can perform broad-phase collision detection
+// [x] create a more robust physics system
+// [x] implement broad-phase collision detection to efficiently rule out many collisions,
+// [x] implement narrow-phase to see which of the potential collisions actually happened.
+// [x] create an acceleration structure such as a grid so that you can perform broad-phase collision detection
 
 // So tips:
 // [x] Use an arena for to store data for a round of the game.
 // [ ] fill a buffer with collision data, and then determine how to resolve collision
-// [ ] when you're inserting bodies into the cell, don't check each body against every cell
-// [ ] a body may overlap multiple cells so its important you don't just compare the point against the cell.
+// [x] when you're inserting bodies into the cell, don't check each body against every cell
+// [x] a body may overlap multiple cells so its important you don't just compare the point against the cell.
 
-// struct GridCell {
-//     vec2 min;
-//     vec2 max;
-//     DynamicArray<Entity *> entities;
-// };
-
-// struct PhysicsGrid {
-//     int32 rows;
-//     int32 columns;
-
-//     float32 cellSize; // each cell is square.
-
-//     // bounds of the entire grid
-//     // this will help determine how many rows and columns
-//     // you have given the cellSize.
-//     vec2 min;
-//     vec2 max;
-
-//     DynamicArray<GridCell> cells;
-// };
 const std = @import("std");
 const softsrv = @import("softsrv.zig");
 const input = @import("core/input.zig");
