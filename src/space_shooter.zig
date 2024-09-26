@@ -341,6 +341,31 @@ fn update(us: i64) void {
                 }
 
                 { // collision
+                    // broad phase
+                    const cell_size = 128;
+                    const width_in_cells: usize = @round(width / cell_size);
+                    const height_in_cells: usize = @round(height / cell_size);
+                    const cell_count = width_in_cells * height_in_cells;
+                    const cell_list = try std.ArrayList(std.ArrayList(usize)).initCapacity(arena.allocator(), cell_count);
+
+                    const ent = player;
+                    // check each corner of entity
+                    const temp_cells = std.ArrayList(usize).initCapacity(arena.allocator(), 4);
+                    defer temp_cells.deinit();
+                    for (0..3) |c| {
+                        const cx = c % 2;
+                        const cy = c / 2;
+                        const ecx = ent.pos[0] + cx * 32;
+                        const ecy = ent.pos[1] + cy * 32;
+                        const ccx = ecy / cell_size;
+                        const ccy = ecx / cell_size;
+                        const cell_idx = ccy * width_in_cells + ccx;
+                        if (!sliceContains(temp_cells.items, cell_idx)) {
+                            temp_cells.appendAssumedCapacity(cell_idx);
+                        }
+                    }
+                    cell_list.appendSliceAssumeCapacity(temp_cells);
+
                     // bullets
                     for (live_bullet_idx_list.items) |bullet_idx| {
                         const bullet = &shooter.bullet_list.list.items[bullet_idx];
@@ -530,13 +555,13 @@ const EntityList = struct {
 
     fn push(self: *EntityList, ent: Entity) void {
         if (self.free_list.popOrNull()) |idx| {
-            std.debug.print("list push: free list @ {}\n", .{idx});
+            // std.debug.print("list push: free list @ {}\n", .{idx});
             self.list.items[idx] = ent;
         } else if (self.list.items.len < self.list.capacity) {
-            std.debug.print("list push: append @ {}\n", .{self.list.items.len});
+            // std.debug.print("list push: append @ {}\n", .{self.list.items.len});
             self.list.appendAssumeCapacity(ent);
         } else {
-            std.debug.print("list push: failed @ capacity({})\n", .{self.list.capacity});
+            // std.debug.print("list push: failed @ capacity({})\n", .{self.list.capacity});
         }
     }
 
@@ -654,4 +679,11 @@ fn Slicer(T: anytype) type {
             return self.buffer[start..end];
         }
     };
+}
+
+fn sliceContains(comptime T: type, slice: []T, a: T) bool {
+    for (slice) |item| {
+        if (item == a) return true;
+    }
+    return false;
 }
