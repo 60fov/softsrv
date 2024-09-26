@@ -60,6 +60,8 @@ const framerate = 60;
 var memory: []u8 = undefined;
 // stores per frame data (could make an allocator)
 var scratch: []u8 = undefined;
+var scratch_fba: std.heap.FixedBufferAllocator = undefined;
+var scratch_arena: std.heap.ArenaAllocator = undefined;
 // stores what will never be deallocated
 var persist: std.heap.FixedBufferAllocator = undefined;
 // stores per round data
@@ -92,6 +94,7 @@ const Shooter = struct {
 
     pub fn init(allocator: std.mem.Allocator) !Shooter {
         const ent_buffer = try allocator.alloc(Entity, entity_max);
+        @memset(ent_buffer, .{});
 
         // i like this alot
         var slicer = Slicer(Entity){ .buffer = ent_buffer };
@@ -140,6 +143,8 @@ pub fn main() !void {
         const mem_size = persist_mem_size + arena_mem_size;
         memory = try allocator.alloc(u8, mem_size);
         scratch = try allocator.alloc(u8, scratch_mem_size);
+        scratch_fba = std.heap.FixedBufferAllocator.init(scratch);
+        scratch_arena = std.heap.ArenaAllocator.init(scratch_fba.allocator());
         persist = std.heap.FixedBufferAllocator.init(memory[0..persist_mem_size]);
         arena_fba = std.heap.FixedBufferAllocator.init(memory[persist_mem_size..]);
         arena = std.heap.ArenaAllocator.init(arena_fba.allocator());
@@ -181,6 +186,7 @@ fn update(us: i64) void {
     framecount += 1;
     time += us;
     const dt: f32 = @as(f32, @floatFromInt(us)) / @as(f32, (std.time.us_per_s));
+    _ = scratch_arena.reset(.free_all);
 
     { // update
         const kb = input.kb();
@@ -248,10 +254,10 @@ fn update(us: i64) void {
                     }
                 }
 
-                const live_enemy1_idx_list = shooter.enemy1_list.getLiveIdxList() catch unreachable;
-                defer live_enemy1_idx_list.deinit();
-                const live_enemy2_idx_list = shooter.enemy2_list.getLiveIdxList() catch unreachable;
-                defer live_enemy2_idx_list.deinit();
+                var live_enemy1_idx_list = shooter.enemy1_list.getLiveIdxList(scratch_arena.allocator()) catch unreachable;
+                defer live_enemy1_idx_list.deinit(scratch_arena.allocator());
+                var live_enemy2_idx_list = shooter.enemy2_list.getLiveIdxList(scratch_arena.allocator()) catch unreachable;
+                defer live_enemy2_idx_list.deinit(scratch_arena.allocator());
 
                 { // enemy logic
                     for (live_enemy1_idx_list.items) |idx| {
@@ -321,10 +327,11 @@ fn update(us: i64) void {
                     }
                 }
 
-                const live_bullet_idx_list = shooter.bullet_list.getLiveIdxList() catch unreachable;
-                defer live_bullet_idx_list.deinit();
+                var live_bullet_idx_list = shooter.bullet_list.getLiveIdxList(scratch_arena.allocator()) catch unreachable;
+                defer live_bullet_idx_list.deinit(scratch_arena.allocator());
 
                 { // projectile logic
+
                 }
 
                 { // move things
@@ -343,28 +350,70 @@ fn update(us: i64) void {
                 { // collision
                     // broad phase
                     const cell_size = 128;
-                    const width_in_cells: usize = @round(width / cell_size);
-                    const height_in_cells: usize = @round(height / cell_size);
+                    const width_in_cells: usize = @round(@as(f32, width) / @as(f32, cell_size));
+                    const height_in_cells: usize = @round(@as(f32, height) / @as(f32, cell_size));
                     const cell_count = width_in_cells * height_in_cells;
-                    const cell_list = try std.ArrayList(std.ArrayList(usize)).initCapacity(arena.allocator(), cell_count);
+                    const Cell = struct {
+                        ent_idx_list: std.ArrayList(usize),
 
-                    const ent = player;
-                    // check each corner of entity
-                    const temp_cells = std.ArrayList(usize).initCapacity(arena.allocator(), 4);
-                    defer temp_cells.deinit();
-                    for (0..3) |c| {
-                        const cx = c % 2;
-                        const cy = c / 2;
-                        const ecx = ent.pos[0] + cx * 32;
-                        const ecy = ent.pos[1] + cy * 32;
-                        const ccx = ecy / cell_size;
-                        const ccy = ecx / cell_size;
-                        const cell_idx = ccy * width_in_cells + ccx;
-                        if (!sliceContains(temp_cells.items, cell_idx)) {
-                            temp_cells.appendAssumedCapacity(cell_idx);
+                        fn getAABBFromCellIdx(cell_idx: usize) AABB {
+                            // TODO
+                            _ = cell_idx;
+                            return AABB{};
+                        }
+                    };
+                    const cell_buffer = scratch_arena.allocator().alloc(Cell, cell_count) catch unreachable;
+                    // const CellList = std.SinglyLinkedList(Cell);
+                    // var cell_list: CellList = .{};
+
+                    // TODO weird zig type???
+                    // const Cell = std.ArrayList(usize);
+                    // const cell_list = try std.ArrayList(Cell).initCapacity(arena.allocator(), cell_count);
+                    // for (cell_list.items) |cell| {
+                    // why is cell a usize rather than ArrayList(usize)?
+                    // }
+
+                    for (live_bullet_idx_list.items) |bullet_idx| {
+                        const bullet = shooter.bullet_list.list.items[bullet_idx];
+                        // check each corner of entity
+                        var corner_cell_hit_list = std.ArrayList(usize).initCapacity(scratch_arena.allocator(), 4) catch unreachable;
+                        defer corner_cell_hit_list.deinit();
+                        for (0..3) |c| {
+                            const cx = c % 2;
+                            const cy = c / 2;
+                            const ecx = bullet.pos[0] + @as(f32, @floatFromInt(cx * 32));
+                            const ecy = bullet.pos[1] + @as(f32, @floatFromInt(cy * 32));
+                            const ccx: usize = @intFromFloat(ecx / cell_size);
+                            const ccy: usize = @intFromFloat(ecy / cell_size);
+                            const cell_idx = ccy * width_in_cells + ccx;
+                            // don't put the same corner in the
+                            if (!sliceContains(usize, corner_cell_hit_list.items, cell_idx)) {
+                                corner_cell_hit_list.appendAssumeCapacity(cell_idx);
+                            }
+                        }
+
+                        for (corner_cell_hit_list.items, 0..) |cell_idx, i| {
+                            const cell = &cell_buffer[cell_idx];
+                            std.debug.print("iter: {}, cell idx: {}, cell: {}\n", .{ i, cell_idx, cell });
+                            // if (cell_buffer[cell_idx]) |*cell| {
+                            cell.ent_idx_list.append(bullet_idx) catch unreachable;
+                            // } else {
+                            // NOTE init function feels wrong here... (too implicit? unecessary abstraction?)
+                            // I want something like scratch_arena.createWithValue(Cell, .{...});
+                            // cool syntax might be (not-zig)
+                            // Cell @heap(scratch_arena) {
+                            //     ...
+                            // }
+                            // const node = scratch_arena.allocator().create(CellList.Node) catch unreachable;
+                            // node.* = CellList.Node{
+                            //     .data = Cell{
+                            //         .ent_idx_list = std.ArrayList(usize).init(scratch_arena.allocator()),
+                            //     },
+                            // };
+                            // cell_list.prepend(node);
+                            // }
                         }
                     }
-                    cell_list.appendSliceAssumeCapacity(temp_cells);
 
                     // bullets
                     for (live_bullet_idx_list.items) |bullet_idx| {
@@ -497,6 +546,7 @@ fn update(us: i64) void {
 
 // SECTION: entity
 const EntityKind = enum(u8) {
+    none,
     player,
     enemy1,
     enemy2,
@@ -520,14 +570,15 @@ const Entity = struct {
 
     pos: Vec2 = .{ 0, 0 },
     vel: Vec2 = .{ 0, 0 },
-    speed: f32,
-    alive: bool,
+    speed: f32 = 0.0,
+    alive: bool = false,
     kind: union(EntityKind) {
+        none: void,
         player: PlayerData,
         enemy1: Enemy1Data,
         enemy2: Enemy2Data,
         bullet: BulletData,
-    },
+    } = .{ .none = {} },
 
     fn collision(a: *const Entity, b: *const Entity) bool {
         const dv = a.pos - b.pos;
@@ -569,8 +620,8 @@ const EntityList = struct {
         self.free_list.appendAssumeCapacity(idx);
     }
 
-    fn getLiveIdxList(self: *const EntityList) !std.ArrayList(usize) {
-        var live_idx_list = try std.ArrayList(usize).initCapacity(arena.allocator(), self.free_list.capacity);
+    fn getLiveIdxList(self: *const EntityList, allocator: std.mem.Allocator) !std.ArrayListUnmanaged(usize) {
+        var live_idx_list = try std.ArrayListUnmanaged(usize).initCapacity(allocator, self.free_list.capacity);
         for (self.list.items, 0..) |*ent, idx| {
             if (ent.alive) {
                 live_idx_list.appendAssumeCapacity(idx);
