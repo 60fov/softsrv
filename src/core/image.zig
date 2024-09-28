@@ -73,7 +73,7 @@ pub fn loadPPM(allocator: std.mem.Allocator, path: []const u8) !Bitmap {
     reader.skipWhitespace();
     max_val = try std.fmt.parseInt(@TypeOf(max_val), reader.readUntilWhitespace(), 10);
     reader.skipWhitespace();
-    std.debug.print("width {d}, height {d}, max_val {d}\n", .{ width, height, max_val });
+    // std.debug.print("width {d}, height {d}, max_val {d}\n", .{ width, height, max_val });
 
     var bitmap = try Bitmap.init(allocator, width, height);
 

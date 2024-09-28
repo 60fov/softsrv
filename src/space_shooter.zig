@@ -644,7 +644,7 @@ const EntityList = struct {
 // SECTION: assets
 const Assets = struct {
     const Sprite = struct {
-        src: Rect,
+        src: Rect(f32),
         sheet: Bitmap,
     };
 
@@ -677,8 +677,8 @@ const Assets = struct {
         };
     }
 };
-fn getSpriteSrc(tile_size: u32, x: u32, y: u32) Rect {
-    return Rect{
+fn getSpriteSrc(tile_size: u32, x: u32, y: u32) Rect(f32) {
+    return Rect(f32){
         .x = @floatFromInt(tile_size * x),
         .y = @floatFromInt(tile_size * y),
         .w = @floatFromInt(tile_size),

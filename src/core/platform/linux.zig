@@ -1,6 +1,5 @@
 const std = @import("std");
 const platform = @import("../platform.zig");
-const gl = @import("../../gl.zig");
 const input = @import("../input.zig");
 
 const c = @cImport({
@@ -33,7 +32,6 @@ pub const Window = struct {
 
         const x_setup = c.xcb_get_setup(connection);
         const screen = c.xcb_setup_roots_iterator(x_setup).data;
-        std.debug.print("xcb screen {any}\n", .{screen.*});
 
         const win_value_mask: u32 = c.XCB_CW_BACK_PIXEL | c.XCB_CW_EVENT_MASK;
         const event_value_mask =

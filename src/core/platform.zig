@@ -65,7 +65,7 @@ pub fn poll() void {
 pub fn present(fb: *Framebuffer) void {
     switch (system) {
         .windows => fb.blit_bgr(&bitmap),
-        .linux => fb.blit_rgb(&bitmap),
+        .linux => fb.blit_bgr(&bitmap),
         // .macos => self.blit(.rgb, &bitmap),
     }
 

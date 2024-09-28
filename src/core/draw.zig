@@ -75,9 +75,9 @@ pub fn line(fb: *Framebuffer, x_0: i32, y_0: i32, x_1: i32, y_1: i32, r: u8, g: 
 
 pub fn bitmap(fb: *Framebuffer, btmp: Bitmap, x: i32, y: i32) void {
     for (0..btmp.height) |byi| {
+        const fyi = @as(usize, @intCast(y)) + byi;
         for (0..btmp.width) |bxi| {
             const fxi = @as(usize, @intCast(x)) + bxi;
-            const fyi = @as(usize, @intCast(y)) + byi;
             if (fxi < 0 or fyi < 0 or fxi >= fb.width or fyi >= fb.height) continue;
             const fpi = (fxi + fyi * @as(usize, @intCast(fb.width))) * 4;
             const bpi = (bxi + byi * @as(usize, @intCast(btmp.width))) * 4;
@@ -88,11 +88,11 @@ pub fn bitmap(fb: *Framebuffer, btmp: Bitmap, x: i32, y: i32) void {
     }
 }
 
-pub fn bitmap_src(fb: *Framebuffer, btmp: Bitmap, src: Rect, x: i32, y: i32) void {
-    const src_w: usize = @intFromFloat(src.w);
-    const src_h: usize = @intFromFloat(src.h);
-    const src_x: i32 = @intFromFloat(src.x);
-    const src_y: i32 = @intFromFloat(src.y);
+pub fn bitmap_src(fb: *Framebuffer, btmp: Bitmap, src: Rect(i32), x: i32, y: i32) void {
+    const src_w: usize = @intCast(src.w);
+    const src_h: usize = @intCast(src.h);
+    const src_x: i32 = src.x;
+    const src_y: i32 = src.y;
     for (0..src_h) |syi| {
         for (0..src_w) |sxi| {
             const bxi = sxi + @as(usize, @intCast(src_x));

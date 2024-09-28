@@ -1,4 +1,5 @@
 bin/
+dist/
 **/*.swp
 profile/
 .DS_Store

@@ -80,13 +80,13 @@ fn update(ms: i64) void {
     softsrv.draw.line(&fb, 300, y0, 500, y1, 100, 200, 250);
 
     // input demo
-    // const input = softsrv.platform.input;
-    // const m = input.mouse();
-    // const kb = input.kb();
+    const input = softsrv.platform.input;
+    const m = input.mouse();
+    const kb = input.kb();
 
-    // const blue: u8 = if (kb.key(.KC_SPACE).isDown()) 255 else 100;
+    const blue: u8 = if (kb.key(.KC_SPACE).isDown()) 255 else 100;
 
-    // softsrv.draw.line(&fb, 0, 0, @intCast(m.x), @intCast(m.y), 190, 80, blue);
+    softsrv.draw.line(&fb, 0, 0, @intCast(m.x), @intCast(m.y), 190, 80, blue);
 
     // font demo
     softsrv.draw.bitmap(&fb, font.bitmap, 300, 200);

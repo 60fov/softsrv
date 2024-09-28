@@ -73,7 +73,7 @@ pub fn blit_bgr(self: *Framebuffer, bitmap: *const Bitmap) void {
             // const alpha = self.color[i * 4 + 3];
             const alpha = 1;
             // TODO (un)hard code elements per pixel
-            const bitmap_pixel_idx = i * 4 + j;
+            const bitmap_pixel_idx = i * 4 + (2 - j);
             const self_pixel_idx = i * 4 + j;
             bitmap.buffer[bitmap_pixel_idx] = self.color[self_pixel_idx] * alpha;
         }

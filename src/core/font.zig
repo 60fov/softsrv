@@ -8,7 +8,7 @@ const GLYPH_MAX = std.math.maxInt(u16);
 
 pub const BitmapFont = struct {
     const Glyph = struct {
-        src: Rect,
+        src: Rect(i32),
         code: u16,
         dwidth: i32,
     };
@@ -17,7 +17,7 @@ pub const BitmapFont = struct {
     name: ?[]const u8,
     descent: i32,
     ascent: i32,
-    box: Rect,
+    box: Rect(i32),
     glyphs: []Glyph,
     bitmap: Bitmap,
     /// dimensions of bitmap in glyphs
@@ -81,23 +81,23 @@ pub const BitmapFont = struct {
             }
         }
 
-        if (font.name) |name| std.debug.print("font name {s}\n", .{name});
+        // if (font.name) |name| std.debug.print("font name {s}\n", .{name});
 
         const glyph_count = glyph_token_list.items.len;
-        std.debug.print("\tglpyh count: {d}\n", .{glyph_count});
+        // std.debug.print("\tglpyh count: {d}\n", .{glyph_count});
 
         const font_w = @as(usize, @intCast(font.box.w));
         const font_h = @as(usize, @intCast(font.box.h));
-        std.debug.print("\tfont box: {d}x{d}\n", .{ font_w, font_h });
+        // std.debug.print("\tfont box: {d}x{d}\n", .{ font_w, font_h });
 
         const length: usize = std.math.sqrt(glyph_count * font_w * font_h);
         const bitmap_size: usize = try std.math.ceilPowerOfTwo(usize, length);
-        std.debug.print("\tbitmap size in pixels: {d}\n", .{bitmap_size});
+        // std.debug.print("\tbitmap size in pixels: {d}\n", .{bitmap_size});
 
         // size of bitmap in glyphs
         const gw: usize = bitmap_size / font_w;
         const gh: usize = bitmap_size / font_h;
-        std.debug.print("\tbitmap dim in glyphs: {d}x{d}\n", .{ gw, gh });
+        // std.debug.print("\tbitmap dim in glyphs: {d}x{d}\n", .{ gw, gh });
 
         font.width = gw;
         font.height = gh;
@@ -109,7 +109,7 @@ pub const BitmapFont = struct {
             const gy = @divTrunc(gi, gw);
             const px = gx * font_w;
             const py = gy * font_h;
-            const src = Rect{
+            const src = Rect(i32){
                 .x = @intCast(px),
                 .y = @intCast(py),
                 .w = font.box.w,
@@ -128,7 +128,7 @@ pub const BitmapFont = struct {
                         const bo = (8 - (hx + 1));
                         const bit = hex >> bo & 1;
                         for (0..3) |po| {
-                            const bi = pi * 3 + po;
+                            const bi = pi * 4 + po;
                             if (bi > font.bitmap.buffer.len) continue;
                             font.bitmap.buffer[bi] = bit * 255;
                         }
@@ -155,7 +155,7 @@ pub const BitmapFont = struct {
             family_name: []const u8,
             font_ascent: i32,
             font_descent: i32,
-            font_bounding_box: Rect,
+            font_bounding_box: Rect(i32),
             glyph: GlyphToken,
         };
 
@@ -163,7 +163,7 @@ pub const BitmapFont = struct {
             var bitmap: [32]u8 = undefined;
             var height: usize = undefined;
 
-            bbx: Rect = .{},
+            bbx: Rect(i32) = .{},
             dwidth: i32 = 0,
             encoding: u16 = 0,
             // consider using u256 to pack up to bitmap lines 32
@@ -259,7 +259,7 @@ pub const BitmapFont = struct {
                     const descent = try parseInt(i32, token, 10);
                     try self.tokens.append(Token{ .font_ascent = descent });
                 } else if (eql(u8, next, "FONTBOUNDINGBOX")) {
-                    var fbb: Rect = undefined;
+                    var fbb: Rect(i32) = undefined;
                     fbb.w = try parseInt(i32, iter.next() orelse break, 10);
                     fbb.h = try parseInt(i32, iter.next() orelse break, 10);
                     fbb.x = try parseInt(i32, iter.next() orelse break, 10);
@@ -287,7 +287,7 @@ pub const BitmapFont = struct {
                             const token_dw = iter.next() orelse break;
                             token.glyph.dwidth = try parseInt(i32, token_dw, 10);
                         } else if (eql(u8, next_glyph_token, "BBX")) {
-                            var bbx: Rect = undefined;
+                            var bbx: Rect(i32) = undefined;
                             bbx.w = try parseInt(i32, iter.next() orelse break, 10);
                             bbx.h = try parseInt(i32, iter.next() orelse break, 10);
                             bbx.x = try parseInt(i32, iter.next() orelse break, 10);
