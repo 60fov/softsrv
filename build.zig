@@ -22,8 +22,22 @@ pub fn build(b: *Build) void {
     }, .{});
 
     addProject(b, .{
+        .name = "pong",
+        .root_source_file = b.path("src/pong.zig"),
+        .target = target,
+        .optimize = optimize,
+    }, .{});
+
+    addProject(b, .{
         .name = "space_shooter",
         .root_source_file = b.path("src/space_shooter.zig"),
+        .target = target,
+        .optimize = optimize,
+    }, .{});
+
+    addProject(b, .{
+        .name = "breakout",
+        .root_source_file = b.path("src/breakout.zig"),
         .target = target,
         .optimize = optimize,
     }, .{});
