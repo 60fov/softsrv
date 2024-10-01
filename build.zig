@@ -109,6 +109,7 @@ fn addProject(b: *Build, exe_options: std.Build.ExecutableOptions, proj_options:
     const build_desc = std.fmt.bufPrint(scratch[0..], "build project {s}", .{name}) catch unreachable;
     const build_step = b.step(name, build_desc);
     const build_exe = b.addInstallArtifact(exe, .{});
+    build_step.dependOn(b.getInstallStep());
     build_step.dependOn(&build_exe.step);
 
     if (proj_options.add_run_step) {

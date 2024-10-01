@@ -1,7 +1,5 @@
 // Breakout, very similar to Pong. In breakout the play controls a paddle which can bounce a ball. Above the player are a grid of "bricks" which the player needs to break. A brick is broken whenever the ball hits it. The game consists of a series of levels; each time they break all the bricks on a level they move onto the next level. As the game goes on there should be more bricks, up to a maximum limit. It is up to you as the game designer to determine how big the bricks and paddles are, in addition the what the maximum number of bricks are, and how much they increase per level.
 
-// a very rough breakout but that's all folks    !!
-
 // [x] The bricks should be placed on top of the screen, and the player paddle on the bottom. The ball should bounce off of the top of screen as well as the left and right.
 // [x] You should change the color of the background and the color of the bricks every level.
 // [x] No two bricks should overlap each other.
@@ -11,7 +9,6 @@
 // [x] At the start of the game the ball should fall from the middle of the screen, between the bricks and the player.
 // [x] You'll need to use structs, arrays, and loops.
 // [x] paddle cannot go off the screen
-
 // [~] The player should be able to control the paddle both with the keyboard and the mouse.
 // [~] You should remove elements from your array by swapping the position of the thing at the end with the index that's being deleted. But make sure to not actually remove the brick until the animation has finished.
 // [x] The ball's color should change based on its speed.
@@ -20,14 +17,15 @@
 // [x] When the ball hits the paddle the paddle should change colors and then animate back towards its default color.
 // [x] You should have a menu for the game that displays the controls to the player, and tells them to press a button to start playing the game. You should return to this screen when the player reaches a game over state. I recommend having two functions, one for the normal game update and another for the menu; you simply call one or the other based on what state you're in.
 // [x] You should draw a trail behind the ball based on its previous positions over the last N frames.
+// [x] The brick should also animate from its default color to a "hit" color; once it reaches the hit color you should stop drawing it.
+// [x] The ball should never be in an "invalid" position; for example when it collides with a brick it's important that it never be rendered inside the brick.
 
-// [ ] The brick should also animate from its default color to a "hit" color; once it reaches the hit color you should stop drawing it.
-// [ ] handle the case where the mouse is off the screen.
-// [ ] The ball should never be in an "invalid" position; for example when it collides with a brick it's important that it never be rendered inside the brick.
 // cant draw text yet (so close tho)
-// [ ] You should keep track of which level the player is on and how many seconds they've been playing. You should draw text onto the screen displaying this data to the player.
-// [ ] You should also keep track of the highest level the player has gotten to and the maximum number of seconds they've played. Display this to the player as the high score.
-
+// [~] You should keep track of which level the player is on and how many seconds they've been playing. You should draw text onto the screen displaying this data to the player.
+// [~] You should also keep track of the highest level the player has gotten to and the maximum number of seconds they've played. Display this to the player as the high score.
+// no mouse input (on linux lol)
+// [ ] handle the case where the mouse is off the screen.
+// no time
 // [ ] While you need to have all the core features of breakout, feel free to be creative with the rules (you could have multiple balls, add powerups, give the bricks different behaviors, add an opponent, etc)
 // [ ] Bonus points: implement a cheat-code where if you press "up, up, down, down, left, right, left, right" something special happens. I think trying to record a sequence of inputs is a pretty cool exercise (hint: use an array)
 
@@ -53,6 +51,8 @@ const Breakout = struct {
         const max_speed = 600;
         const paddle_factor = 200;
         const tail_length = 10;
+        const level_speed_factor = 20;
+        const fade_out_time = 250 * std.time.us_per_ms;
         pos: Vec(2, f32) = .{ 0, 0 },
         vel: Vec(2, f32) = .{ 0, 0 },
         col: Vec(3, u8) = .{ 255, 255, 255 },
@@ -95,8 +95,9 @@ const Breakout = struct {
         }
     };
     const Phase = enum {
-        play,
         menu,
+        next_level,
+        play,
     };
 
     phase: Phase = .menu,
@@ -105,10 +106,14 @@ const Breakout = struct {
     player: Player = .{},
     brick_buffer: [max_brick_count]Brick = [_]Brick{.{}} ** max_brick_count,
     brick_count: usize = 0,
+    level: usize = 0,
+    highest_level: usize = 0,
+    start_time: i64 = 0,
+    longest_play_time: i64 = 0,
     // input_seq: [10]input.Keyboard.Keycode = [_]input.Keyboard.Keycode{.{}} ** 10,
     // input_seq_idx: usize,
 
-    fn init() Breakout {
+    fn init(level: usize) Breakout {
         const pw = 100;
         const ph = 10;
         const px = (width - pw) / 2;
@@ -119,21 +124,38 @@ const Breakout = struct {
 
         const rand = prng.random();
         var result = Breakout{
-            .bg_col = .{ rand.int(u8), rand.int(u8), rand.int(u8) },
+            .bg_col = .{ rand.uintLessThan(u8, 120), rand.uintLessThan(u8, 120), rand.uintLessThan(u8, 120) },
             .player = .{ .pos = .{ px, py }, .size = .{ pw, ph } },
             .ball = .{ .pos = .{ bx, by }, .vel = .{ 0, 200 }, .trail = [_]Vec(2, f32){.{ bx, by }} ** Breakout.Ball.tail_length },
+            .level = level,
         };
 
         const brick_w = 50;
         const brick_h = 10;
-        for (0..10) |idx| {
+        const brick_padding = 2;
+        const spawn_max = 50;
+        const spawn_count = @min(1 + 5 * level, spawn_max);
+        const spawn_padding = 100;
+        const spawn_width = width - spawn_padding * 2;
+        const spawn_columns = spawn_width / brick_w;
+        const spawn_x_offset = brick_w + brick_padding;
+        const spawn_y_offset = brick_h + brick_padding;
+        for (0..(spawn_count)) |idx| {
+            const spawn_col = idx % spawn_columns;
+            const spawn_row = idx / spawn_columns;
+            // const spawn_offset = spawn_width / (1 + spawn_columns);
             result.brick_count += 1;
-            const br_x = 100 + idx * (brick_w + 2);
-            const br_y = 100;
+            const br_x = spawn_padding + (spawn_x_offset * spawn_col);
+            // const br_x = 100 + idx * (brick_w + 2);
+            const br_y = spawn_padding + (spawn_y_offset * spawn_row);
             result.brick_buffer[idx] = Brick{
                 .pos = .{ @floatFromInt(br_x), @floatFromInt(br_y) },
                 .size = .{ brick_w, brick_h },
-                .col = .{ rand.int(u8), rand.int(u8), rand.int(u8) },
+                .col = .{
+                    rand.intRangeLessThanBiased(u8, 155, 255),
+                    rand.intRangeLessThanBiased(u8, 155, 255),
+                    rand.intRangeLessThanBiased(u8, 155, 255),
+                },
             };
         }
 
@@ -142,9 +164,15 @@ const Breakout = struct {
 
     fn brickRemove(self: *Breakout, idx: usize) void {
         if (self.brick_count == 0 or idx > self.brick_buffer.len) return;
+        if (self.brick_count - 1 == idx) {
+            self.brick_count -= 1;
+            return;
+        }
         // apparently i cannot reason about swap remove ill come back to this later
-        std.mem.swap(Brick, &self.brick_buffer[idx], &self.brick_buffer[self.brick_count - 1]);
+        // const temp = self.brick_buffer[idx];
+        // self.brick_buffer[idx] = self.brick_buffer[self.brick_count - 1];
         self.brick_count -= 1;
+        std.mem.swap(Brick, &self.brick_buffer[idx], &self.brick_buffer[self.brick_count]);
     }
 
     fn brickList(self: *Breakout) []Brick {
@@ -190,7 +218,7 @@ pub fn main() !void {
     var log_freq = Freq.init(1);
 
     breakout = try memory_fba.allocator().create(Breakout);
-    breakout.* = Breakout.init();
+    breakout.* = Breakout.init(0);
 
     while (!softsrv.platform.shouldQuit()) {
         std.time.sleep(0);
@@ -218,9 +246,21 @@ fn update(us: i64) void {
         switch (breakout.phase) {
             .menu => {
                 if (kb.key(.KC_SPACE).isJustDown()) {
-                    breakout.* = Breakout.init();
+                    const highest_level = @max(breakout.highest_level, breakout.level);
+                    const longest_play_time = @max(breakout.longest_play_time, time - breakout.start_time);
+                    std.debug.print("\nhighest level: {}\nlongest play time: {}\n", .{ highest_level, @divTrunc(longest_play_time, std.time.us_per_s) });
+                    breakout.* = Breakout.init(0);
+                    breakout.start_time = time;
+                    breakout.highest_level = highest_level;
+                    breakout.longest_play_time = longest_play_time;
                     breakout.phase = .play;
                 }
+            },
+            .next_level => {
+                breakout.* = Breakout.init(breakout.level + 1);
+                breakout.phase = .play;
+
+                std.debug.print("level: {}\n", .{breakout.level});
             },
             .play => {
                 var move_dir: Vec(2, f32) = .{ 0, 0 };
@@ -239,7 +279,7 @@ fn update(us: i64) void {
                     const ani_dur = 1 * std.time.us_per_s;
                     const time_since_hit = std.math.clamp(time - breakout.player.hit_time, 0, ani_dur);
                     const hit_t = @as(f32, @floatFromInt(time_since_hit)) / @as(f32, @floatFromInt(ani_dur));
-                    breakout.player.col[1] = @intFromFloat(std.math.lerp(0, 255, hit_t));
+                    breakout.player.col[0] = @intFromFloat(std.math.lerp(0, 255, hit_t));
                 }
 
                 // player paddle effect of ball
@@ -282,6 +322,7 @@ fn update(us: i64) void {
                 // gg
                 if (breakout.ball.pos[1] > height) {
                     breakout.phase = .menu;
+                    std.debug.print("\ngg\n\tlevel: {}\n\ttime played: {}\n", .{ breakout.level, @divTrunc(time - breakout.start_time, std.time.us_per_s) });
                 }
 
                 // ball x player collision
@@ -298,19 +339,30 @@ fn update(us: i64) void {
                     breakout.ball.pos[1] = breakout.player.pos[1] - Breakout.Ball.size;
                 }
 
-                // ball x brick collision
-                // the above hack doesn't work on these since collision can happen from all directions
-                // the math isn't the reason im reluctant to just implement the collision i want (-raytracing)
-                // but there's no way to resolve collision with simply position data. gotta know where we came from
-                // but.... we have velocity
-                // pos - vel = prev pos (i think)
-                const brick_list = breakout.brickList();
-                for (brick_list, 0..) |*brick, idx| {
-                    if (softsrv.math.Collision.aabb(breakout.ball.aabb(), brick.aabb())) {
-                        brick.hit_time = time;
-                        breakout.brickRemove(idx);
-                        breakout.ball.vel *= Vec(2, f32){ 1, -1 };
-                        break;
+                var brick_iter = std.mem.reverseIterator(breakout.brickList());
+                var idx = breakout.brick_count;
+                while (brick_iter.nextPtr()) |brick| {
+                    idx -= 1;
+                    if (brick.hit_time != 0) {
+                        // if the brick has been hit
+                        const time_since_hit = time - brick.hit_time;
+                        if (time_since_hit >= Breakout.Ball.fade_out_time) {
+                            breakout.brickRemove(idx);
+                            if (breakout.brickList().len == 0) {
+                                breakout.phase = .next_level;
+                            }
+                        } else {
+                            const col_t: f32 = @as(f32, @floatFromInt(time_since_hit)) / @as(f32, @floatFromInt(Breakout.Ball.fade_out_time));
+                            brick.col[1] = @intFromFloat(std.math.lerp(255, 0, col_t));
+                        }
+                    } else {
+                        // if the brick has not been hit
+                        // ball x brick collision
+                        if (softsrv.math.Collision.aabb(breakout.ball.aabb(), brick.aabb())) {
+                            brick.hit_time = time;
+                            breakout.ball.vel *= Vec(2, f32){ 1, -1 };
+                            break;
+                        }
                     }
                 }
             },
