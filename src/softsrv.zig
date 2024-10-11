@@ -5,6 +5,7 @@ pub const input = @import("core/input.zig");
 pub const math = @import("core/math.zig");
 pub const font = @import("core/font.zig");
 pub const asset = @import("core/asset.zig");
+pub const mem = @import("core/mem.zig");
 
 pub const Framebuffer = @import("core/framebuffer.zig");
 pub const Image = @import("core/image.zig");
