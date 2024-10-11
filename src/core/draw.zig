@@ -4,6 +4,7 @@ const Rect = @import("math.zig").Rect;
 const BitmapFont = @import("font.zig").BitmapFont;
 
 pub fn pixel(fb: *Framebuffer, x: i32, y: i32, r: u8, g: u8, b: u8) void {
+    // if (x < 0 or y < 0 or x >= fb.width or y >= fb.height) return;
     const pixel_idx: usize = @intCast((x + y * fb.width) * 4); // TODO hard code bit depth
     // TODO faster alternatives. @memcpy? vector?
     fb.color[pixel_idx + 0] = r;

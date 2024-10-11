@@ -15,7 +15,7 @@ const gigabytes = softsrv.mem.gigabytes;
 
 const width = 800;
 const height = 600;
-const framerate = 60;
+const framerate = 300;
 
 const Memory = genMemoryType(megabytes(5), kilobytes(5), megabytes(5));
 
@@ -23,14 +23,195 @@ const GameState = struct {
     // TODO: consider separating memory from game state
     memory: Memory,
     assets: Assets,
+    prey_system: PreySystem,
+    prng: std.rand.DefaultPrng,
 
     fn init(allocator: std.mem.Allocator) !GameState {
-        var result: GameState = undefined;
-        result.memory = try Memory.init(allocator);
-        result.assets = try Assets.init(result.memory.persist_fba.allocator());
-        return result;
+        var memory = try Memory.init(allocator);
+        const assets = try Assets.init(memory.persist_fba.allocator());
+        const prey_system = try PreySystem.init(memory.persist_fba.allocator());
+        return GameState{
+            .memory = memory,
+            .assets = assets,
+            .prey_system = prey_system,
+            .prng = std.rand.DefaultPrng.init(1),
+        };
     }
 };
+
+const PreySystem = struct {
+    const max_prey = 100;
+
+    const Prey = struct {
+        handle: Handle = undefined,
+        alive: bool = false,
+        pos: Vec2 = .{ 0, 0 },
+        vel: Vec2 = .{ 0, 0 },
+        look_angle: f32 = 0,
+    };
+
+    const ActivePreyIterator = struct {
+        const Self = @This();
+
+        system: *PreySystem,
+        idx: usize = 0,
+
+        pub fn next(iter: *Self) ?*Prey {
+            // NOTE: could break if the number of active prey has exceeded
+            // the difference between max_prey and the number of free indices
+            while (iter.idx < iter.system.prey_list.elem_list.len) {
+                const element = &iter.system.prey_list.elem_list[iter.idx];
+                if (iter.system.getPrey(element.handle)) |prey| {
+                    return prey;
+                } else |_| {}
+                iter.idx += 1;
+            }
+            return null;
+        }
+    };
+
+    prey_list: FreeList(Prey),
+    spawn_timer: std.time.Timer,
+    spawn_interval: i64,
+
+    fn init(allocator: std.mem.Allocator) !PreySystem {
+        // NOTE: structs in a free list must be initialized before use
+        // since the free list will not write
+        const prey_list = try FreeList(Prey).init(allocator, max_prey, .{});
+        for (prey_list.elem_list, 0..) |*prey, idx| {
+            prey.handle = Handle{ .idx = idx };
+        }
+        return PreySystem{
+            .prey_list = prey_list,
+            .spawn_timer = try std.time.Timer.start(),
+            .spawn_interval = std.time.us_per_s * 1,
+        };
+    }
+
+    fn spawnPrey(self: *PreySystem) !Handle {
+        const random = game.prng.random();
+        if (self.prey_list.free_list.popOrNull()) |idx| {
+            const old_prey = self.prey_list.elem_list[idx];
+            const prey = Prey{
+                .handle = old_prey.handle,
+                .pos = .{
+                    @floatFromInt(random.intRangeAtMostBiased(i32, 200, width - 200)),
+                    @floatFromInt(random.intRangeAtMostBiased(i32, 200, height - 200)),
+                },
+            };
+            self.prey_list.elem_list[idx] = prey;
+            return prey.handle;
+        } else {
+            return error.PreyListFull;
+        }
+    }
+
+    fn despawnPrey(self: *PreySystem, handle: Handle) !void {
+        if (self.getPrey(handle)) |prey| {
+            try self.prey_list.free(prey.handle.idx);
+            prey.handle.free();
+        } else |err| {
+            return err;
+        }
+    }
+
+    fn getPrey(self: *PreySystem, handle: Handle) !*Prey {
+        if (handle.idx >= self.prey_list.elem_list.len) {
+            return error.HandleIndexOutOfRange;
+        } else if (std.mem.indexOfScalar(usize, self.prey_list.free_list.items, handle.idx)) |_| {
+            return error.HandleFreed;
+        } else {
+            const prey = &self.prey_list.elem_list[handle.idx];
+            if (prey.handle.generation != handle.generation) {
+                return error.HandleGenerationMismatch;
+            }
+            return prey;
+        }
+    }
+
+    fn activePreyIterator(system: *PreySystem) ActivePreyIterator {
+        return ActivePreyIterator{ .system = system };
+    }
+};
+
+const Handle = struct {
+    idx: usize,
+    generation: usize = 1,
+
+    fn free(handle: *Handle) void {
+        handle.generation += 1;
+    }
+};
+
+const FreeListError = error{
+    Full,
+    Empty,
+    IndexInvalid,
+    IndexAlreadyFreed,
+};
+
+pub fn FreeList(ElementType: type) type {
+    return struct {
+        const Self = @This();
+        const Element = ElementType;
+
+        const FreeListOptions = struct {
+            init_elem: Element = .{},
+        };
+
+        elem_list: []Element,
+        // TODO: implement my own list type
+        free_list: std.ArrayList(usize),
+
+        fn init(allocator: std.mem.Allocator, max_count: usize, options: FreeListOptions) !Self {
+            var free_list = try std.ArrayList(usize).initCapacity(allocator, max_count);
+            // NOTE: free list is initialized with descending indices making the
+            // first indices pop'd will be the the beginning of the element list
+            for (1..(max_count + 1)) |i| {
+                try free_list.append(max_count - i);
+            }
+
+            const elem_list = try allocator.alloc(Element, max_count);
+            @memset(elem_list, options.init_elem);
+
+            return Self{
+                .elem_list = elem_list,
+                .free_list = free_list,
+            };
+        }
+
+        /// allocation attempts on a full list are an error: `FreeListError.Full`
+        ///
+        /// returns the index of the alloc'd element
+        fn allocate(self: *Self, elem: Element) !usize {
+            if (self.free_list.popOrNull()) |idx| {
+                // std.debug.print("list push: free list @ {}\n", .{idx});
+                self.elem_list.items[idx] = elem;
+                return idx;
+            } else {
+                // std.debug.print("list push: failed @ capacity({})\n", .{self.elem_list.capacity});
+                return FreeListError.Full;
+            }
+        }
+
+        fn free(self: *Self, idx: usize) FreeListError!void {
+            // NOTE: an index can be free'd multiple times without this check (is it worth? set? hash map?)
+            if (std.mem.indexOfScalar(usize, self.free_list.items, idx)) |_| {
+                return FreeListError.IndexAlreadyFreed;
+            } else if (idx >= self.elem_list.len) {
+                return FreeListError.IndexInvalid;
+            } else if (self.free_list.items.len >= self.free_list.capacity) {
+                return FreeListError.Empty;
+            } else {
+                self.free_list.appendAssumeCapacity(idx);
+            }
+        }
+
+        fn peekFreeIdxOrNull(self: *Self) ?usize {
+            return self.free_list.getLastOrNull();
+        }
+    };
+}
 
 var fb: softsrv.Framebuffer = undefined;
 var game: *GameState = undefined;
@@ -44,6 +225,10 @@ pub fn main() !void {
 
         game = try allocator.create(GameState);
         game.* = try GameState.init(allocator);
+
+        for (0..10) |_| {
+            _ = try game.prey_system.spawnPrey();
+        }
     }
 
     var update_freq = Freq.init(framerate);
@@ -59,7 +244,7 @@ pub fn main() !void {
 
 var framecount: u32 = 0;
 fn log(_: i64) void {
-    // std.debug.print("{}\n", .{framecount});
+    std.debug.print("{}\n", .{framecount});
     framecount = 0;
 }
 
@@ -74,16 +259,35 @@ fn update(us: i64) void {
 
     { // update
         _ = dt;
+        if (game.prey_system.spawn_timer.read() >= game.prey_system.spawn_interval) {
+            game.prey_system.spawn_timer.reset();
+            _ = game.prey_system.spawnPrey() catch |err| {
+                std.debug.print("prey list full cant spawn: {}\n", .{err});
+            };
+        }
     }
 
     { // draw
-        const draw = softsrv.draw;
+        // const draw = softsrv.draw;
 
         fb.clear();
 
-        const angle: f32 = @as(f32, @floatFromInt(time)) / 1000000.0;
-        draw_poly(game.assets.boid_poly, 100, 100, 5, angle, 255, 255, 255);
-        draw.pixel(&fb, 100, 100, 255, 255, 255);
+        // const angle: f32 = @as(f32, @floatFromInt(time)) / 1000000.0;
+        // var iter = game.prey_system.activePreyIterator();
+        // while (iter.next()) |prey| {
+        //     // std.debug.print("prey pos: {}\n", .{prey.pos});
+        //     draw_poly(
+        //         game.assets.boid_poly,
+        //         @intFromFloat(prey.pos[0]),
+        //         @intFromFloat(prey.pos[1]),
+        //         5,
+        //         angle,
+        //         255,
+        //         255,
+        //         255,
+        //     );
+        //     draw.pixel(&fb, @intFromFloat(prey.pos[0]), @intFromFloat(prey.pos[1]), 255, 255, 255);
+        // }
     }
 
     softsrv.platform.present(&fb);
@@ -219,12 +423,22 @@ const Freq = struct {
         self.accum += self.now - self.last;
         self.last = self.now;
 
-        // falling behind at 60fps on T480
         // TODO death spiral if update func takes longer than ms
         while (self.accum >= self.us) {
             func(self.us);
             self.accum -= self.us;
         }
+    }
+
+    pub fn poll(self: *Freq) bool {
+        self.now = std.time.microTimestamp();
+        self.accum += self.now - self.last;
+        self.last = self.now;
+        if (self.accum >= self.us) {
+            self.accum -= self.us;
+            return true;
+        }
+        return false;
     }
 };
 

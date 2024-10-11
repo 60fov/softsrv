@@ -44,7 +44,7 @@ pub fn build(b: *Build) void {
 
     addProject(b, .{
         .name = "prey",
-        .root_source_file = b.path("src/predator_prey.zig"),
+        .root_source_file = b.path("src/prey.zig"),
         .target = target,
         .optimize = optimize,
     }, .{});
