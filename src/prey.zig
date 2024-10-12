@@ -1,13 +1,15 @@
 const std = @import("std");
 const softsrv = @import("softsrv.zig");
 
+const Rect = @import("core/math.zig").Rect;
+const AABB = @import("core/math.zig").AABB;
+const Vector = @import("core/math.zig").Vector;
+const Collision = @import("core/math.zig").Collision;
+
 const input = softsrv.input;
 const image = softsrv.image;
 const Bitmap = image.Bitmap;
-
-const Rect = @import("core/math.zig").Rect;
-const AABB = @import("core/math.zig").AABB;
-const Collision = @import("core/math.zig").Collision;
+const Vec = Vector.Vec;
 
 const kilobytes = softsrv.mem.kilobytes;
 const megabytes = softsrv.mem.megabytes;
@@ -24,6 +26,7 @@ const GameState = struct {
     memory: Memory,
     assets: Assets,
     prey_system: PreySystem,
+    predator: Vec(2, f32),
     prng: std.rand.DefaultPrng,
 
     fn init(allocator: std.mem.Allocator) !GameState {
@@ -34,6 +37,7 @@ const GameState = struct {
             .memory = memory,
             .assets = assets,
             .prey_system = prey_system,
+            .predator = Vec(2, f32).init(.{ width / 5 * 4, height / 2 }),
             .prng = std.rand.DefaultPrng.init(1),
         };
     }
@@ -44,10 +48,11 @@ const PreySystem = struct {
 
     const Prey = struct {
         handle: Handle = undefined,
-        alive: bool = false,
-        pos: Vec2 = .{ 0, 0 },
-        vel: Vec2 = .{ 0, 0 },
+        pos: Vec(2, f32) = Vec(2, f32).zero,
+        vel: Vec(2, f32) = Vec(2, f32).zero,
         look_angle: f32 = 0,
+        alive: bool = false,
+        predator: bool = false,
     };
 
     const ActivePreyIterator = struct {
@@ -94,10 +99,11 @@ const PreySystem = struct {
             const old_prey = self.prey_list.elem_list[idx];
             const prey = Prey{
                 .handle = old_prey.handle,
-                .pos = .{
+                .alive = true,
+                .pos = Vec(2, f32).init(.{
                     @floatFromInt(random.intRangeAtMostBiased(i32, 200, width - 200)),
                     @floatFromInt(random.intRangeAtMostBiased(i32, 200, height - 200)),
-                },
+                }),
             };
             self.prey_list.elem_list[idx] = prey;
             return prey.handle;
@@ -129,6 +135,7 @@ const PreySystem = struct {
         }
     }
 
+    // NOTE: too slow for render loop
     fn activePreyIterator(system: *PreySystem) ActivePreyIterator {
         return ActivePreyIterator{ .system = system };
     }
@@ -258,49 +265,78 @@ fn update(us: i64) void {
     _ = frame_arena.reset(.free_all);
 
     { // update
-        _ = dt;
-        if (game.prey_system.spawn_timer.read() >= game.prey_system.spawn_interval) {
-            game.prey_system.spawn_timer.reset();
-            _ = game.prey_system.spawnPrey() catch |err| {
-                std.debug.print("prey list full cant spawn: {}\n", .{err});
-            };
+        // spawn prey on interval
+        // const time_since_last_spawn = time - @as(i64, @intCast(game.prey_system.spawn_timer.read()));
+        // if (time_since_last_spawn >= game.prey_system.spawn_interval) {
+        //     game.prey_system.spawn_timer.reset();
+        //     _ = game.prey_system.spawnPrey() catch |err| {
+        //         std.debug.print("prey list full cant spawn: {}\n", .{err});
+        //     };
+        // }
+
+        for (game.prey_system.prey_list.elem_list) |*prey| {
+            if (!prey.alive) continue;
+            // avoid
+            // if (prey.nearestPredator) {}
+            const vec2pred = Vec(2, f32).subVecVec(game.predator, prey.pos);
+            const dist = vec2pred.len();
+            prey.predator = dist < 100;
+
+            // move
+            const dx = @cos(prey.look_angle);
+            const dy = @sin(prey.look_angle);
+            prey.vel.elem = .{ dx, dy };
+            prey.vel.mulScalar(100);
+            const dv = Vec(2, f32).mulVecScalar(prey.vel, dt);
+            prey.pos.addVec(dv);
         }
     }
 
     { // draw
-        // const draw = softsrv.draw;
+        const draw = softsrv.draw;
 
         fb.clear();
 
-        // const angle: f32 = @as(f32, @floatFromInt(time)) / 1000000.0;
-        // var iter = game.prey_system.activePreyIterator();
-        // while (iter.next()) |prey| {
-        //     // std.debug.print("prey pos: {}\n", .{prey.pos});
-        //     draw_poly(
-        //         game.assets.boid_poly,
-        //         @intFromFloat(prey.pos[0]),
-        //         @intFromFloat(prey.pos[1]),
-        //         5,
-        //         angle,
-        //         255,
-        //         255,
-        //         255,
-        //     );
-        //     draw.pixel(&fb, @intFromFloat(prey.pos[0]), @intFromFloat(prey.pos[1]), 255, 255, 255);
-        // }
+        for (game.prey_system.prey_list.elem_list) |prey| {
+            if (!prey.alive) continue;
+            const c: u8 = if (prey.predator) 0 else 255;
+            draw_poly(
+                game.assets.boid_poly,
+                @intFromFloat(prey.pos.elem[0]),
+                @intFromFloat(prey.pos.elem[1]),
+                5,
+                prey.look_angle,
+                255,
+                c,
+                c,
+            );
+            draw.pixel(&fb, @intFromFloat(prey.pos.elem[0]), @intFromFloat(prey.pos.elem[1]), 255, 255, 255);
+        }
+
+        const pred_size = 10.0;
+        draw.rect(
+            &fb,
+            @intFromFloat(game.predator.elem[0] - pred_size / 2.0),
+            @intFromFloat(game.predator.elem[1] - pred_size / 2.0),
+            pred_size,
+            pred_size,
+            255,
+            50,
+            50,
+        );
     }
 
     softsrv.platform.present(&fb);
 }
 
-fn draw_poly(points: []Vec2, x: i32, y: i32, scale: f32, angle: f32, r: u8, g: u8, b: u8) void {
+fn draw_poly(points: []Vec(2, f32), x: i32, y: i32, scale: f32, angle: f32, r: u8, g: u8, b: u8) void {
     var mat = Mat.identity();
     mat = Mat.mul(mat, Mat.translation(@floatFromInt(x), @floatFromInt(y)));
     mat = Mat.mul(mat, Mat.scaling(scale, scale));
     mat = Mat.mul(mat, Mat.rotation(angle));
     for (1..points.len) |idx| {
-        const p_0 = Mat.mulVec(mat, points[idx - 1]);
-        const p_1 = Mat.mulVec(mat, points[idx]);
+        const p_0 = Mat.mulVec(mat, points[idx - 1].elem);
+        const p_1 = Mat.mulVec(mat, points[idx].elem);
         softsrv.draw.line(
             &fb,
             @intFromFloat(p_0[0]),
@@ -316,16 +352,16 @@ fn draw_poly(points: []Vec2, x: i32, y: i32, scale: f32, angle: f32, r: u8, g: u
 
 // SECTION: assets
 const Assets = struct {
-    boid_poly: []Vec2,
+    boid_poly: []Vec(2, f32),
 
     pub fn init(allocator: std.mem.Allocator) !Assets {
-        const boid_poly = try allocator.alloc(Vec2, 5);
-        @memcpy(boid_poly, &[_]Vec2{
-            Vec2{ -1, -1 },
-            Vec2{ 1, 0 },
-            Vec2{ -1, 1 },
-            Vec2{ -0.5, 0 },
-            Vec2{ -1, -1 },
+        const boid_poly = try allocator.alloc(Vec(2, f32), 5);
+        @memcpy(boid_poly, &[_]Vec(2, f32){
+            Vec(2, f32).init(.{ -1, -1 }),
+            Vec(2, f32).init(.{ 1, 0 }),
+            Vec(2, f32).init(.{ -1, 1 }),
+            Vec(2, f32).init(.{ -0.5, 0 }),
+            Vec(2, f32).init(.{ -1, -1 }),
         });
         return Assets{
             .boid_poly = boid_poly,
@@ -344,7 +380,6 @@ fn getSpriteSrc(tile_size: u32, x: u32, y: u32) Rect(f32) {
 
 // SECTION: math
 const Mat3 = @Vector(9, f32);
-const Vec2 = @Vector(2, f32);
 
 const Mat = struct {
     fn identity() Mat3 {
@@ -395,8 +430,8 @@ const Mat = struct {
         return result;
     }
 
-    fn mulVec(m: Mat3, v: Vec2) Vec2 {
-        return Vec2{
+    fn mulVec(m: Mat3, v: @Vector(2, f32)) @Vector(2, f32) {
+        return .{
             m[0] * v[0] + m[1] * v[1] + m[2],
             m[3] * v[0] + m[4] * v[1] + m[5],
         };

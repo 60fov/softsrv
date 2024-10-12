@@ -28,22 +28,67 @@ pub const AABB = struct {
 // this is mostly for future abstraction (lazy absraction? lol)
 
 pub const Vector = struct {
-    // TODO consider calling TypeGen
-    pub fn Vec(elem_count: comptime_int, comptime T: type) type {
-        const DataType = T;
-        return @Vector(elem_count, DataType);
-    }
-    // this is a bust
-    pub fn len2(T: type, v: T) T.DataType {
-        @reduce(.Add, v * v);
-    }
-    pub fn len(T: type, v: T) T.DataType {
-        return @sqrt(len2(v));
-    }
-    pub fn normalize(T: type, v: T) T {
-        const l2 = len2(v);
-        if (l2 == 0) return v;
-        return v / l2;
+    // TODO: how to differentiate implicit functions
+    // could put them in a name space v.impl.add()
+    pub fn Vec(elem_count: comptime_int, comptime Element: type) type {
+        return struct {
+            const Self = @This();
+            pub const VectorType = @Vector(elem_count, Element);
+
+            pub const zero: Self = Self{ .elem = @splat(0) };
+
+            elem: VectorType,
+
+            pub fn init(vec: VectorType) Self {
+                return Self{ .elem = vec };
+            }
+
+            // explicit functions
+            pub fn mulVecScalar(v: Self, s: Element) Self {
+                return Self{ .elem = v.elem * @as(VectorType, @splat(s)) };
+            }
+            pub fn subVecVec(a: Self, b: Self) Self {
+                return Self{ .elem = a.elem - b.elem };
+            }
+
+            // implicit functions
+            pub fn addVec(self: *Self, v: Self) void {
+                self.elem += v.elem;
+            }
+            pub fn addVector(self: *Self, v: VectorType) void {
+                self.elem += v;
+            }
+
+            pub fn mulVec(self: *Self, v: Self) void {
+                self.elem *= v.elem;
+            }
+            pub fn mulVector(self: *Self, v: VectorType) void {
+                self.elem *= v;
+            }
+
+            pub fn mulScalar(self: *Self, s: Element) void {
+                self.elem *= @splat(s);
+            }
+
+            pub fn dotVec(self: *const Self, v: Self) Element {
+                return @reduce(.Add, self.elem * v.elem);
+            }
+            pub fn dotVector(self: *const Self, v: VectorType) Element {
+                return @reduce(.Add, self.elem * v);
+            }
+
+            pub fn len2(v: *const Self) Element {
+                return v.dotVector(v.elem);
+            }
+            pub fn len(v: *const Self) Element {
+                return @sqrt(v.len2());
+            }
+            pub fn normalize(v: Element) Element {
+                const l2 = len2(v);
+                if (l2 == 0) return v;
+                return v / l2;
+            }
+        };
     }
 };
 
