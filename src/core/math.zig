@@ -47,6 +47,12 @@ pub const Vector = struct {
             pub fn mulVecScalar(v: Self, s: Element) Self {
                 return Self{ .elem = v.elem * @as(VectorType, @splat(s)) };
             }
+            pub fn addVecVec(a: Self, b: Self) Self {
+                return Self{ .elem = a.elem + b.elem };
+            }
+            pub fn addVecVector(a: Self, b: VectorType) Self {
+                return Self{ .elem = a.elem + b };
+            }
             pub fn subVecVec(a: Self, b: Self) Self {
                 return Self{ .elem = a.elem - b.elem };
             }
@@ -83,10 +89,14 @@ pub const Vector = struct {
             pub fn len(v: *const Self) Element {
                 return @sqrt(v.len2());
             }
-            pub fn normalize(v: Element) Element {
-                const l2 = len2(v);
+            pub fn normalize(v: *const Self) Element {
+                const l2 = v.len2();
                 if (l2 == 0) return v;
                 return v / l2;
+            }
+
+            pub fn angle(v: *const Self) Element {
+                return std.math.atan2(v.elem[1], v.elem[0]);
             }
         };
     }

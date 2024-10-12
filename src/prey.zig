@@ -45,6 +45,7 @@ const GameState = struct {
 
 const PreySystem = struct {
     const max_prey = 100;
+    const max_predator = 10;
 
     const Prey = struct {
         handle: Handle = undefined,
@@ -52,7 +53,18 @@ const PreySystem = struct {
         vel: Vec(2, f32) = Vec(2, f32).zero,
         look_angle: f32 = 0,
         alive: bool = false,
-        predator: bool = false,
+
+        predator: ?Handle = null,
+    };
+
+    const Predator = struct {
+        handle: Handle = undefined,
+        pos: Vec(2, f32) = Vec(2, f32).zero,
+        vel: Vec(2, f32) = Vec(2, f32).zero,
+        look_angle: f32 = 0,
+        alive: bool = false,
+
+        target_prey: ?Handle = null,
     };
 
     const ActivePreyIterator = struct {
@@ -76,6 +88,8 @@ const PreySystem = struct {
     };
 
     prey_list: FreeList(Prey),
+    predator_list: FreeList(Predator),
+
     spawn_timer: std.time.Timer,
     spawn_interval: i64,
 
@@ -86,8 +100,16 @@ const PreySystem = struct {
         for (prey_list.elem_list, 0..) |*prey, idx| {
             prey.handle = Handle{ .idx = idx };
         }
+
+        const predator_list = try FreeList(Predator).init(allocator, max_predator, .{});
+        for (predator_list.elem_list, 0..) |*predator, idx| {
+            predator.handle = Handle{ .idx = idx };
+        }
+
         return PreySystem{
             .prey_list = prey_list,
+            .predator_list = predator_list,
+
             .spawn_timer = try std.time.Timer.start(),
             .spawn_interval = std.time.us_per_s * 1,
         };
@@ -111,7 +133,6 @@ const PreySystem = struct {
             return error.PreyListFull;
         }
     }
-
     fn despawnPrey(self: *PreySystem, handle: Handle) !void {
         if (self.getPrey(handle)) |prey| {
             try self.prey_list.free(prey.handle.idx);
@@ -120,7 +141,6 @@ const PreySystem = struct {
             return err;
         }
     }
-
     fn getPrey(self: *PreySystem, handle: Handle) !*Prey {
         if (handle.idx >= self.prey_list.elem_list.len) {
             return error.HandleIndexOutOfRange;
@@ -132,6 +152,46 @@ const PreySystem = struct {
                 return error.HandleGenerationMismatch;
             }
             return prey;
+        }
+    }
+
+    fn spawnPredator(self: *PreySystem) !Handle {
+        const random = game.prng.random();
+        if (self.predator_list.free_list.popOrNull()) |idx| {
+            const old_predator = self.predator_list.elem_list[idx];
+            const predator = Predator{
+                .handle = old_predator.handle,
+                .alive = true,
+                .pos = Vec(2, f32).init(.{
+                    @floatFromInt(random.intRangeAtMostBiased(i32, 200, width - 200)),
+                    @floatFromInt(random.intRangeAtMostBiased(i32, 200, height - 200)),
+                }),
+            };
+            self.predator_list.elem_list[idx] = predator;
+            return predator.handle;
+        } else {
+            return error.PredatorListFull;
+        }
+    }
+    fn despawnPredator(self: *PreySystem, handle: Handle) !void {
+        if (self.getPredator(handle)) |predator| {
+            try self.predator_list.free(predator.handle.idx);
+            predator.handle.free();
+        } else |err| {
+            return err;
+        }
+    }
+    fn getPredator(self: *PreySystem, handle: Handle) !*Predator {
+        if (handle.idx >= self.predator_list.elem_list.len) {
+            return error.HandleIndexOutOfRange;
+        } else if (std.mem.indexOfScalar(usize, self.predator_list.free_list.items, handle.idx)) |_| {
+            return error.HandleFreed;
+        } else {
+            const predator = &self.predator_list.elem_list[handle.idx];
+            if (predator.handle.generation != handle.generation) {
+                return error.HandleGenerationMismatch;
+            }
+            return predator;
         }
     }
 
@@ -233,8 +293,12 @@ pub fn main() !void {
         game = try allocator.create(GameState);
         game.* = try GameState.init(allocator);
 
-        for (0..10) |_| {
+        for (0..100) |_| {
             _ = try game.prey_system.spawnPrey();
+        }
+
+        for (0..10) |_| {
+            _ = try game.prey_system.spawnPredator();
         }
     }
 
@@ -264,23 +328,126 @@ fn update(us: i64) void {
     const frame_arena = &game.memory.frame_arena;
     _ = frame_arena.reset(.free_all);
 
-    { // update
-        // spawn prey on interval
-        // const time_since_last_spawn = time - @as(i64, @intCast(game.prey_system.spawn_timer.read()));
-        // if (time_since_last_spawn >= game.prey_system.spawn_interval) {
-        //     game.prey_system.spawn_timer.reset();
-        //     _ = game.prey_system.spawnPrey() catch |err| {
-        //         std.debug.print("prey list full cant spawn: {}\n", .{err});
-        //     };
-        // }
+    { // update predator
+
+        for (game.prey_system.predator_list.elem_list) |*predator| {
+            if (!predator.alive) continue;
+
+            { // look towards target prey or target search if none
+                const eat_radius2 = std.math.pow(f32, 5.0, 2.0);
+                if (predator.target_prey) |prey_handle| {
+                    if (game.prey_system.getPrey(prey_handle)) |prey| {
+                        const vec_to_prey = Vec(2, f32).subVecVec(prey.pos, predator.pos);
+                        if (vec_to_prey.len2() <= eat_radius2) {
+                            prey.alive = false;
+                            predator.target_prey = null;
+                        } else {
+                            const angle_pred_to_prey = vec_to_prey.angle();
+                            const new_look_angle = std.math.lerp(predator.look_angle, angle_pred_to_prey, 1);
+                            predator.look_angle = new_look_angle;
+                        }
+                    } else |_| {
+                        predator.target_prey = null;
+                    }
+                } else {
+                    // if not hunting check if a prey is in detect radius
+                    const detect_radius = 100;
+                    var low_dist: f32 = @floatFromInt(detect_radius);
+                    for (game.prey_system.prey_list.elem_list) |prey| {
+                        if (!prey.alive) continue;
+                        const vec_from_prey = Vec(2, f32).subVecVec(predator.pos, prey.pos);
+                        const dist = vec_from_prey.len();
+                        if (dist < low_dist) {
+                            low_dist = dist;
+                            predator.target_prey = prey.handle;
+                        }
+                    }
+                }
+            }
+
+            // move
+            const dx = @cos(predator.look_angle);
+            const dy = @sin(predator.look_angle);
+            predator.vel.elem = .{ dx, dy };
+            if (predator.target_prey != null) {
+                predator.vel.mulScalar(125);
+            } else {
+                predator.vel.mulScalar(90);
+            }
+            const dv = Vec(2, f32).mulVecScalar(predator.vel, dt);
+            predator.pos.addVec(dv);
+            predator.pos.elem[0] = std.math.clamp(predator.pos.elem[0], 0, width);
+            predator.pos.elem[1] = std.math.clamp(predator.pos.elem[1], 0, height);
+        }
+    }
+
+    { // update prey
+        // spawn prey on space
+        const kb = input.kb();
+        if (kb.key(.KC_SPACE).isJustDown()) {
+            _ = game.prey_system.spawnPrey() catch |err| {
+                std.debug.print("prey list full cant spawn: {}\n", .{err});
+            };
+        }
 
         for (game.prey_system.prey_list.elem_list) |*prey| {
             if (!prey.alive) continue;
-            // avoid
-            // if (prey.nearestPredator) {}
-            const vec2pred = Vec(2, f32).subVecVec(game.predator, prey.pos);
-            const dist = vec2pred.len();
-            prey.predator = dist < 100;
+
+            { // get nearest predator
+                prey.predator = null;
+                const detect_radius = 100;
+                var low_dist: f32 = @floatFromInt(detect_radius);
+                for (game.prey_system.predator_list.elem_list) |predator| {
+                    if (!predator.alive) continue;
+                    const vec_from_pred = Vec(2, f32).subVecVec(prey.pos, predator.pos);
+                    const dist = vec_from_pred.len();
+                    if (dist < low_dist) {
+                        low_dist = dist;
+                        prey.predator = predator.handle;
+                    }
+                }
+            }
+
+            { // push away from bounds
+                const bounds_check_range = 100;
+                const margin = 20;
+                const radian_segments = 32;
+                const segment_theta: f32 = std.math.pi * 2.0 / @as(f32, @floatFromInt(radian_segments));
+                var goal_angle_or_null: ?f32 = null;
+                var rad_seg: usize = 0;
+                angle_search: while (rad_seg < radian_segments) {
+                    const alpha: f32 = @as(f32, @floatFromInt(rad_seg)) * segment_theta;
+                    for ([_]bool{ true, false }) |cw| {
+                        const delta_angle = if (cw) prey.look_angle + alpha else prey.look_angle - alpha;
+                        const nx = prey.pos.elem[0] + @cos(delta_angle) * bounds_check_range;
+                        const ny = prey.pos.elem[1] + @sin(delta_angle) * bounds_check_range;
+                        if (nx >= margin and ny >= margin and nx < (width - margin) and ny < (height - margin)) {
+                            goal_angle_or_null = delta_angle;
+                            break :angle_search;
+                        }
+                    }
+                    rad_seg += 1;
+                }
+                if (goal_angle_or_null) |goal_angle| {
+                    const new_look_angle = std.math.lerp(prey.look_angle, goal_angle, 0.5);
+                    prey.look_angle = new_look_angle;
+                } else {
+                    std.debug.panic("couldn't find direction in bounds\n", .{});
+                }
+            }
+
+            { // push look dir away from predator
+                if (prey.predator) |predator_handle| {
+                    if (game.prey_system.getPredator(predator_handle)) |predator| {
+                        const vec_from_pred = Vec(2, f32).subVecVec(prey.pos, predator.pos);
+                        const angle_pred_to_prey = vec_from_pred.angle();
+                        const new_look_angle = std.math.lerp(prey.look_angle, angle_pred_to_prey, 1 * dt);
+                        prey.look_angle = new_look_angle;
+                        // const alpha = (angle_pred_to_prey - prey.look_angle) * dt;
+                        // prey.look_angle += alpha;
+                    } else |_| {}
+                }
+            }
 
             // move
             const dx = @cos(prey.look_angle);
@@ -299,7 +466,14 @@ fn update(us: i64) void {
 
         for (game.prey_system.prey_list.elem_list) |prey| {
             if (!prey.alive) continue;
-            const c: u8 = if (prey.predator) 0 else 255;
+            var c: u8 = 255;
+
+            if (prey.predator) |predator| {
+                if (game.prey_system.getPredator(predator)) |_| {
+                    c = 0;
+                } else |_| {}
+            }
+
             draw_poly(
                 game.assets.boid_poly,
                 @intFromFloat(prey.pos.elem[0]),
@@ -313,17 +487,20 @@ fn update(us: i64) void {
             draw.pixel(&fb, @intFromFloat(prey.pos.elem[0]), @intFromFloat(prey.pos.elem[1]), 255, 255, 255);
         }
 
-        const pred_size = 10.0;
-        draw.rect(
-            &fb,
-            @intFromFloat(game.predator.elem[0] - pred_size / 2.0),
-            @intFromFloat(game.predator.elem[1] - pred_size / 2.0),
-            pred_size,
-            pred_size,
-            255,
-            50,
-            50,
-        );
+        for (game.prey_system.predator_list.elem_list) |predator| {
+            if (!predator.alive) continue;
+            const pred_size = 10.0;
+            draw.rect(
+                &fb,
+                @intFromFloat(predator.pos.elem[0] - pred_size / 2.0),
+                @intFromFloat(predator.pos.elem[1] - pred_size / 2.0),
+                pred_size,
+                pred_size,
+                255,
+                50,
+                50,
+            );
+        }
     }
 
     softsrv.platform.present(&fb);
