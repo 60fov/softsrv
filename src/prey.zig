@@ -43,6 +43,27 @@ const GameState = struct {
     }
 };
 
+const Entity = struct {
+    const EntityKind = enum {
+        prey,
+        predator,
+    };
+    const Prey = struct {};
+    const Predator = struct {};
+    const EntityKindData = union {
+        prey: Prey,
+        predator: Predator,
+    };
+
+    pub fn Handle(EntityUnion: type) type {
+        return struct {
+            flags: u8,
+            kind: EntityKind,
+            data: EntityUnion,
+        };
+    }
+};
+
 const PreySystem = struct {
     const max_prey = 100;
     const max_predator = 10;
@@ -63,6 +84,12 @@ const PreySystem = struct {
         look_angle: f32 = 0,
 
         target_prey_handle: ?Handle = null,
+
+        fn closerToo(self: @This(), a: @This(), b: @This()) bool {
+            const vec_to_a = Vec(2, f32).subVecVec(a.pos, self.pos);
+            const vec_to_b = Vec(2, f32).subVecVec(b.pos, self.pos);
+            return vec_to_a.len() < vec_to_b.len();
+        }
     };
 
     prey_list: FreeList(Prey),
@@ -360,10 +387,40 @@ fn update(us: i64) void {
             }
 
             { // avoidance
-                for (game.prey_system.predator_list.elem_list) |peer| {
+                const avoid_range: f32 = 400.0;
+                const near_limit = 4;
+
+                const Predator = PreySystem.Predator;
+                const peer_in_range_list = try frame_arena.allocator().alloc(*Predator, near_limit);
+                // logically what we want is
+                // insert sort but it's first goal is to set then
+                // once set swap until not lessThan
+                var peer_in_range_iss = InsertionSortStream(*Predator, Predator.closerToo).init(peer_in_range_list, predator);
+
+                for (game.prey_system.predator_list.elem_list) |*peer| {
                     if (!peer.handle.flags.alive) continue;
                     if (peer.handle.idx == predator.handle.idx) continue;
                     const vec_to_peer = Vec(2, f32).subVecVec(peer, predator);
+                    // calculate the avg position of all predators within avoid_range
+                    // NOTE it would be super cool if you could define optimizations like
+                    // "cache these vec_to_peer calcs for later"
+                    const dist = vec_to_peer.len();
+                    if (dist < avoid_range) {
+                        peer_in_range_iss.write(peer);
+                    }
+                }
+
+                if (peer_in_range_iss.items.len > 0) {
+                    var peer_in_range_avg_pos = Vec(2, f32){};
+                    for (peer_in_range_iss.items) |peer_in_range| {
+                        peer_in_range_avg_pos.addVec(peer_in_range.pos);
+                    }
+                    peer_in_range_avg_pos.mulScalar(1.0 / peer_in_range_iss.items.len);
+                    const vec_from_avg_pos = Vec(2, f32).subVecVec(peer_in_range_avg_pos, predator.pos);
+
+                    const angle_from_avg_pos = vec_from_avg_pos.angle();
+                    const new_look_angle = std.math.lerp(predator.look_angle, angle_from_avg_pos, 0.5);
+                    predator.look_angle = new_look_angle;
                 }
             }
 
@@ -674,6 +731,63 @@ const Freq = struct {
 };
 
 // SECTION: memory
+
+pub fn InsertionSortStream(
+    comptime T: type,
+    comptime SubContextType: type,
+    comptime lessThanFn: fn (SubContextType, lhs: T, rhs: T) bool,
+) type {
+    return struct {
+        capacity: usize,
+        items: []T,
+        sub_ctx: SubContextType,
+
+        const Context = struct {
+            pub fn lessThan(ctx: @This(), a: usize, b: usize) bool {
+                return lessThanFn(ctx.sub_ctx, ctx.items[a], ctx.items[b]);
+            }
+
+            pub fn swap(ctx: @This(), a: usize, b: usize) void {
+                return std.mem.swap(T, &ctx.items[a], &ctx.items[b]);
+            }
+        };
+
+        pub fn init(items: []T, sub_ctx: SubContextType) @This() {
+            return @This(){
+                .capcity = items.len,
+                .items = items[0..0],
+                .sub_ctx = sub_ctx,
+            };
+        }
+
+        pub fn write(self: *@This(), value: T) !void {
+            if (self.items.len + 1 > self.capacity) return error.NoSpaceLeft;
+
+            // TODO logic
+            // insert until at-capacity then
+            // check until lessThan then
+            // swap until not lessThan
+
+            // this is kinda like a lazy eval insertion sort
+
+            self.buffer[self.items.len] = value;
+            self.items.len += 1;
+
+            // insertion sort algo
+            // std.debug.assert(a <= b);
+
+            // var i = a + 1;
+            // while (i < b) : (i += 1) {
+            //     var j = i;
+            //     while (j > a and context.lessThan(j, j - 1)) : (j -= 1) {
+            //         context.swap(j, j - 1);
+            //     }
+            // }
+            // std.sort.insertionContext(self.len - 1, self.len, Context{ .items = items, .sub_ctx = context });
+        }
+    };
+}
+
 pub fn genMemoryType(persist_size: comptime_int, scratch_size: comptime_int, frame_size: comptime_int) type {
     return struct {
         const Self = @This();
