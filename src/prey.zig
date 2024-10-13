@@ -52,9 +52,8 @@ const PreySystem = struct {
         pos: Vec(2, f32) = Vec(2, f32).zero,
         vel: Vec(2, f32) = Vec(2, f32).zero,
         look_angle: f32 = 0,
-        alive: bool = false,
 
-        predator: ?Handle = null,
+        nearest_predator: ?Handle = null,
     };
 
     const Predator = struct {
@@ -62,29 +61,8 @@ const PreySystem = struct {
         pos: Vec(2, f32) = Vec(2, f32).zero,
         vel: Vec(2, f32) = Vec(2, f32).zero,
         look_angle: f32 = 0,
-        alive: bool = false,
 
-        target_prey: ?Handle = null,
-    };
-
-    const ActivePreyIterator = struct {
-        const Self = @This();
-
-        system: *PreySystem,
-        idx: usize = 0,
-
-        pub fn next(iter: *Self) ?*Prey {
-            // NOTE: could break if the number of active prey has exceeded
-            // the difference between max_prey and the number of free indices
-            while (iter.idx < iter.system.prey_list.elem_list.len) {
-                const element = &iter.system.prey_list.elem_list[iter.idx];
-                if (iter.system.getPrey(element.handle)) |prey| {
-                    return prey;
-                } else |_| {}
-                iter.idx += 1;
-            }
-            return null;
-        }
+        target_prey_handle: ?Handle = null,
     };
 
     prey_list: FreeList(Prey),
@@ -120,8 +98,7 @@ const PreySystem = struct {
         if (self.prey_list.free_list.popOrNull()) |idx| {
             const old_prey = self.prey_list.elem_list[idx];
             const prey = Prey{
-                .handle = old_prey.handle,
-                .alive = true,
+                .handle = Handle.refresh(old_prey.handle),
                 .pos = Vec(2, f32).init(.{
                     @floatFromInt(random.intRangeAtMostBiased(i32, 200, width - 200)),
                     @floatFromInt(random.intRangeAtMostBiased(i32, 200, height - 200)),
@@ -160,8 +137,7 @@ const PreySystem = struct {
         if (self.predator_list.free_list.popOrNull()) |idx| {
             const old_predator = self.predator_list.elem_list[idx];
             const predator = Predator{
-                .handle = old_predator.handle,
-                .alive = true,
+                .handle = Handle.refresh(old_predator.handle),
                 .pos = Vec(2, f32).init(.{
                     @floatFromInt(random.intRangeAtMostBiased(i32, 200, width - 200)),
                     @floatFromInt(random.intRangeAtMostBiased(i32, 200, height - 200)),
@@ -194,18 +170,34 @@ const PreySystem = struct {
             return predator;
         }
     }
-
-    // NOTE: too slow for render loop
-    fn activePreyIterator(system: *PreySystem) ActivePreyIterator {
-        return ActivePreyIterator{ .system = system };
-    }
 };
 
 const Handle = struct {
+    const Flags = packed struct(u8) {
+        // TODO alive feels like it should apart of entity
+        alive: bool = false,
+        remove: bool = false,
+        _pad: u6 = 0,
+    };
+
+    // TODO how can i generate the idx rather than setting it?
+    // does it have to be apart of the entity list?
     idx: usize,
     generation: usize = 1,
+    flags: Flags = .{},
+
+    fn refresh(handle: Handle) Handle {
+        // TODO would i ever want to refresh a handle and mark it alive?
+        return Handle{
+            .idx = handle.idx,
+            .flags = .{
+                .alive = true,
+            },
+        };
+    }
 
     fn free(handle: *Handle) void {
+        handle.flags = .{};
         handle.generation += 1;
     }
 };
@@ -329,39 +321,49 @@ fn update(us: i64) void {
     _ = frame_arena.reset(.free_all);
 
     { // update predator
-
         for (game.prey_system.predator_list.elem_list) |*predator| {
-            if (!predator.alive) continue;
+            if (!predator.handle.flags.alive) continue;
 
-            { // look towards target prey or target search if none
-                const eat_radius2 = std.math.pow(f32, 5.0, 2.0);
-                if (predator.target_prey) |prey_handle| {
+            { // hunt
+                if (predator.target_prey_handle) |prey_handle| { // has
+                    // check if prey exists
                     if (game.prey_system.getPrey(prey_handle)) |prey| {
+                        const eat_radius2 = std.math.pow(f32, 5.0, 2.0);
                         const vec_to_prey = Vec(2, f32).subVecVec(prey.pos, predator.pos);
                         if (vec_to_prey.len2() <= eat_radius2) {
-                            prey.alive = false;
-                            predator.target_prey = null;
+                            // eat prey
+                            prey.handle.flags.remove = true;
                         } else {
+                            // look towards target
                             const angle_pred_to_prey = vec_to_prey.angle();
                             const new_look_angle = std.math.lerp(predator.look_angle, angle_pred_to_prey, 1);
                             predator.look_angle = new_look_angle;
                         }
                     } else |_| {
-                        predator.target_prey = null;
+                        // prey does not exist
+                        predator.target_prey_handle = null;
                     }
                 } else {
-                    // if not hunting check if a prey is in detect radius
+                    // check if a prey is in detect radius
                     const detect_radius = 100;
                     var low_dist: f32 = @floatFromInt(detect_radius);
                     for (game.prey_system.prey_list.elem_list) |prey| {
-                        if (!prey.alive) continue;
+                        if (!prey.handle.flags.alive) continue;
                         const vec_from_prey = Vec(2, f32).subVecVec(predator.pos, prey.pos);
                         const dist = vec_from_prey.len();
                         if (dist < low_dist) {
                             low_dist = dist;
-                            predator.target_prey = prey.handle;
+                            predator.target_prey_handle = prey.handle;
                         }
                     }
+                }
+            }
+
+            { // avoidance
+                for (game.prey_system.predator_list.elem_list) |peer| {
+                    if (!peer.handle.flags.alive) continue;
+                    if (peer.handle.idx == predator.handle.idx) continue;
+                    const vec_to_peer = Vec(2, f32).subVecVec(peer, predator);
                 }
             }
 
@@ -369,7 +371,7 @@ fn update(us: i64) void {
             const dx = @cos(predator.look_angle);
             const dy = @sin(predator.look_angle);
             predator.vel.elem = .{ dx, dy };
-            if (predator.target_prey != null) {
+            if (predator.target_prey_handle != null) {
                 predator.vel.mulScalar(125);
             } else {
                 predator.vel.mulScalar(90);
@@ -391,19 +393,19 @@ fn update(us: i64) void {
         }
 
         for (game.prey_system.prey_list.elem_list) |*prey| {
-            if (!prey.alive) continue;
+            if (!prey.handle.flags.alive) continue;
 
             { // get nearest predator
-                prey.predator = null;
+                prey.nearest_predator = null;
                 const detect_radius = 100;
                 var low_dist: f32 = @floatFromInt(detect_radius);
                 for (game.prey_system.predator_list.elem_list) |predator| {
-                    if (!predator.alive) continue;
+                    if (!predator.handle.flags.alive) continue;
                     const vec_from_pred = Vec(2, f32).subVecVec(prey.pos, predator.pos);
                     const dist = vec_from_pred.len();
                     if (dist < low_dist) {
                         low_dist = dist;
-                        prey.predator = predator.handle;
+                        prey.nearest_predator = predator.handle;
                     }
                 }
             }
@@ -436,8 +438,8 @@ fn update(us: i64) void {
                 }
             }
 
-            { // push look dir away from predator
-                if (prey.predator) |predator_handle| {
+            { // avoid nearest predator
+                if (prey.nearest_predator) |predator_handle| {
                     if (game.prey_system.getPredator(predator_handle)) |predator| {
                         const vec_from_pred = Vec(2, f32).subVecVec(prey.pos, predator.pos);
                         const angle_pred_to_prey = vec_from_pred.angle();
@@ -457,6 +459,23 @@ fn update(us: i64) void {
             const dv = Vec(2, f32).mulVecScalar(prey.vel, dt);
             prey.pos.addVec(dv);
         }
+
+        { // clean up
+            for (game.prey_system.prey_list.elem_list) |*prey| {
+                if (prey.handle.flags.remove) {
+                    game.prey_system.despawnPrey(prey.handle) catch |err| {
+                        std.debug.print("failed to despawn prey, error: {s}\n", .{@errorName(err)});
+                    };
+                }
+            }
+            for (game.prey_system.predator_list.elem_list) |*predator| {
+                if (predator.handle.flags.remove) {
+                    game.prey_system.despawnPredator(predator.handle) catch |err| {
+                        std.debug.print("failed to despawn predator, error: {s}\n", .{@errorName(err)});
+                    };
+                }
+            }
+        }
     }
 
     { // draw
@@ -465,10 +484,10 @@ fn update(us: i64) void {
         fb.clear();
 
         for (game.prey_system.prey_list.elem_list) |prey| {
-            if (!prey.alive) continue;
+            if (!prey.handle.flags.alive) continue;
             var c: u8 = 255;
 
-            if (prey.predator) |predator| {
+            if (prey.nearest_predator) |predator| {
                 if (game.prey_system.getPredator(predator)) |_| {
                     c = 0;
                 } else |_| {}
@@ -488,7 +507,7 @@ fn update(us: i64) void {
         }
 
         for (game.prey_system.predator_list.elem_list) |predator| {
-            if (!predator.alive) continue;
+            if (!predator.handle.flags.alive) continue;
             const pred_size = 10.0;
             draw.rect(
                 &fb,
