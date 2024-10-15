@@ -8,7 +8,7 @@ pub const asset = @import("core/asset.zig");
 pub const mem = @import("core/mem.zig");
 
 pub const Framebuffer = @import("core/framebuffer.zig");
-pub const Image = @import("core/image.zig");
+pub const image = @import("core/image.zig");
 
 pub var default_manager: asset.Manager = undefined;
 pub var default_font: asset.AssetId = undefined;

@@ -49,6 +49,13 @@ pub fn build(b: *Build) void {
         .optimize = optimize,
     }, .{});
 
+    addProject(b, .{
+        .name = "image_gen",
+        .root_source_file = b.path("src/image_gen.zig"),
+        .target = target,
+        .optimize = optimize,
+    }, .{});
+
     // tests
     const tests = b.addTest(.{
         .root_source_file = .{ .path = "tests.zig" },
