@@ -17,183 +17,34 @@ const height = 600;
 const framerate = 300;
 
 var fb: softsrv.Framebuffer = undefined;
-var img_list: [1]Image = undefined;
-var rainbow_smoker: RainbowSmoker = undefined;
+var img_list: [4]Image = undefined;
+var prng: std.Random.DefaultPrng = undefined;
+
+var gradient_gen: GradientGenerator = undefined;
+var static_gen: StaticGenerator = undefined;
+var perlin_gen: PerlinNoiseGenerator = undefined;
+var wave_gen: WaveGenerator = undefined;
 
 const Image = struct {
     bitmap: Bitmap,
     x: i32,
     y: i32,
 
-    pub fn pixel(img: *Image, idx: usize, r: u8, g: u8, b: u8) void {
-        img.bitmap.buffer[idx + 0] = r;
-        img.bitmap.buffer[idx + 1] = g;
-        img.bitmap.buffer[idx + 2] = b;
-        img.bitmap.buffer[idx + 3] = 0xff; // unless is argb
-    }
-};
-
-const RainbowSmoker = struct {
-    const PixelPool = struct {
-        pixels: []usize,
-        capacity: usize,
-
-        /// asserts that the pixel pool has atleast one pixel in it
-        fn getRandomPixel(pool: *const PixelPool, prng: std.Random) usize {
-            std.debug.assert(pool.pixels.len > 0);
-            return prng.uintLessThanBiased(usize, pool.pixels.len);
-        }
-
-        // let's see if we can implement swap removal first try!
-        fn remove(pool: *PixelPool, pixel_idx: usize) void {
-            std.debug.print("removing pixel from pool {}\n", .{pixel_idx});
-            if (pool.pixels.len == 0) return;
-            pool.pixels.len -= 1;
-            if (pixel_idx == pool.pixels.len) return;
-            if (std.mem.indexOfScalar(usize, pool.pixels, pixel_idx)) |idx| {
-                std.mem.swap(usize, &pool.pixels[idx], &pool.pixels[pool.pixels.len]);
-            }
-        }
-
-        fn add(pool: *PixelPool, pixel_idx: usize) void {
-            std.debug.print("add pixel to pool {}\n", .{pixel_idx});
-            if (pool.pixels.len >= pool.capacity) return;
-            pool.pixels.len += 1;
-            pool.pixels[pool.pixels.len - 1] = pixel_idx;
-        }
-    };
-
-    image: Image,
-    /// a pool of pixels that have been colored and have non-colored adjacent pixels
-    pixel_pool: PixelPool,
-    iter_idx: usize,
-    prng: std.Random.DefaultPrng,
-
-    fn init(allocator: std.mem.Allocator, img: Image) !RainbowSmoker {
-        const image_pixel_count = img.bitmap.width * img.bitmap.height;
-        const pixels = try allocator.alloc(usize, image_pixel_count);
-        std.debug.print("image pixel count {}\n", .{image_pixel_count});
-        var pool: PixelPool = .{
-            .pixels = pixels[0..0],
-            .capacity = image_pixel_count,
-        };
-
-        // set the initial pixel
-        var prng = std.Random.DefaultPrng.init(1);
-        pool.add(prng.random().uintLessThanBiased(usize, image_pixel_count));
-        std.debug.print("initial pixel in pool {}\n", .{pool.pixels[0]});
-
-        return RainbowSmoker{
-            .image = img,
-            .iter_idx = 0,
-            .pixel_pool = pool,
-            .prng = prng,
-        };
+    pub fn init(allocator: std.mem.Allocator, size: usize, x: i32, y: i32) !Image {
+        var result: Image = undefined;
+        result.bitmap = try Bitmap.init(allocator, @intCast(size), @intCast(size));
+        @memset(result.bitmap.buffer, 0);
+        result.x = x;
+        result.y = y;
+        return result;
     }
 
-    fn imagePixelCount(smoker: *const RainbowSmoker) usize {
-        return smoker.pixel_pool.capacity;
+    pub fn pixelCount(img: *const Image) usize {
+        return img.bitmap.width * img.bitmap.height;
     }
 
-    fn getPixelRelativeIdx(smoker: *const RainbowSmoker, px: i32, py: i32, xo: i32, yo: i32) ?usize {
-        const x = px + xo;
-        const y = py + yo;
-        std.debug.print("get pixel rel to x: {} + {}, y: {} + {}\n", .{ px, xo, py, yo });
-        if (x < 0 or x >= smoker.image.bitmap.width or y < 0 or y >= smoker.image.bitmap.height) return null;
-        const rel_pixel_idx: usize = @as(u32, @intCast(x)) + @as(u32, @intCast(y)) * smoker.image.bitmap.width;
-        std.debug.print("valid idx {}\n", .{rel_pixel_idx});
-        return rel_pixel_idx;
-    }
-
-    /// asserts that the adj_buf has at least four elements
-    fn getListOfNoncoloredAdjacentPixels(smoker: *const RainbowSmoker, pixel_idx: usize, adj_buf: []usize) std.ArrayListUnmanaged(usize) {
-        std.debug.assert(adj_buf.len >= 4);
-        // get pixel xy coords
-        const pixel_x: i32 = @intCast(pixel_idx % smoker.image.bitmap.width);
-        const pixel_y: i32 = @intCast(pixel_idx / smoker.image.bitmap.width);
-        std.debug.print("get peers of pixel: {}, px: {}, py: {}\n", .{ pixel_idx, pixel_x, pixel_y });
-        // get adjacent pixel idx
-        // compile non-colored adj pixels indices ie indices *not* in pool
-        var adj_list = std.ArrayListUnmanaged(usize).initBuffer(adj_buf);
-        const indexOfScalar = std.mem.indexOfScalar;
-        if (smoker.getPixelRelativeIdx(pixel_x, pixel_y, 1, 0)) |idx| {
-            if (indexOfScalar(usize, smoker.pixel_pool.pixels, idx) == null) {
-                const pixel_value = @as(*u32, @alignCast(@ptrCast(&smoker.image.bitmap.buffer[idx * 4])));
-                if (pixel_value.* == 0) {
-                    adj_list.appendAssumeCapacity(idx);
-                } else {
-                    std.debug.print("has been set {}\n", .{pixel_value.*});
-                }
-            }
-        }
-        if (smoker.getPixelRelativeIdx(pixel_x, pixel_y, -1, 0)) |idx| {
-            if (indexOfScalar(usize, smoker.pixel_pool.pixels, idx) == null) {
-                const pixel_value = @as(*u32, @alignCast(@ptrCast(&smoker.image.bitmap.buffer[idx * 4])));
-                if (pixel_value.* == 0) {
-                    adj_list.appendAssumeCapacity(idx);
-                } else {
-                    std.debug.print("has been set {}\n", .{pixel_value.*});
-                }
-            }
-        }
-        if (smoker.getPixelRelativeIdx(pixel_x, pixel_y, 0, 1)) |idx| {
-            if (indexOfScalar(usize, smoker.pixel_pool.pixels, idx) == null) {
-                const pixel_value = @as(*u32, @alignCast(@ptrCast(&smoker.image.bitmap.buffer[idx * 4])));
-                if (pixel_value.* == 0) {
-                    adj_list.appendAssumeCapacity(idx);
-                } else {
-                    std.debug.print("has been set {}\n", .{pixel_value.*});
-                }
-            }
-        }
-        if (smoker.getPixelRelativeIdx(pixel_x, pixel_y, 0, -1)) |idx| {
-            if (indexOfScalar(usize, smoker.pixel_pool.pixels, idx) == null) {
-                const pixel_value = @as(*u32, @alignCast(@ptrCast(&smoker.image.bitmap.buffer[idx * 4])));
-                if (pixel_value.* == 0) {
-                    adj_list.appendAssumeCapacity(idx);
-                } else {
-                    std.debug.print("has been set {}\n", .{pixel_value.*});
-                }
-            }
-        }
-
-        return adj_list;
-    }
-
-    fn iterate(smoker: *RainbowSmoker) !void {
-        if (smoker.iter_idx >= smoker.imagePixelCount()) return error.NoMorePixels;
-        // get random pixel from pool
-        const rand_pixel_idx = smoker.pixel_pool.pixels[smoker.prng.random().uintLessThanBiased(usize, smoker.pixel_pool.pixels.len)];
-        var adj_buf: [4]usize = undefined;
-        const adj_list = smoker.getListOfNoncoloredAdjacentPixels(rand_pixel_idx, adj_buf[0..]);
-
-        // pixel should have previously been removed from poll if has no adjacent available pixels
-        std.debug.assert(adj_list.items.len != 0);
-        smoker.iter_idx += 1;
-        if (true) return;
-        std.debug.print("adj_list {}\n", .{adj_list});
-
-        // remove pixel from pool if we are coloring the last adjacent pixel
-        if (adj_list.items.len == 1) {
-            smoker.pixel_pool.remove(adj_list.items[0]);
-        }
-
-        // get random adj non-colored pixel
-        const rand_adj_pixel_idx = adj_list.items[smoker.prng.random().uintLessThanBiased(usize, adj_list.items.len)];
-
-        // if this pixel has an adj non-colored pixel add to the pixel pool
-        const adj_pixel_adj_list = smoker.getListOfNoncoloredAdjacentPixels(rand_adj_pixel_idx, adj_buf[0..]);
-        if (adj_pixel_adj_list.items.len > 0) {
-            smoker.pixel_pool.add(rand_adj_pixel_idx);
-        }
-
-        // TODO random adj color from palette
-        const col = Vec(3, u8).init(.{
-            smoker.prng.random().int(u8),
-            smoker.prng.random().int(u8),
-            smoker.prng.random().int(u8),
-        });
-        smoker.image.pixel(rand_adj_pixel_idx * 4, col.elem[0], col.elem[1], col.elem[2]);
+    pub fn pixel(img: *Image, idx: usize, col: @Vector(3, u8)) void {
+        @as(*@Vector(3, u8), @alignCast(@ptrCast(&img.bitmap.buffer[idx * 4]))).* = col;
     }
 };
 
@@ -203,19 +54,28 @@ pub fn main() !void {
         try softsrv.platform.init(allocator, "rainbow smoke", width, height);
 
         fb = try softsrv.Framebuffer.init(allocator, width, height);
+        prng = std.Random.DefaultPrng.init(0);
 
-        const size = 100;
-        const gap = 50;
-        for (&img_list, 0..) |*img, idx| {
-            img.bitmap = try Bitmap.init(allocator, size, size);
-            @memset(img.bitmap.buffer, 0);
-            img.x = @intCast(idx * (size + gap) + gap);
-            img.y = @intCast(gap);
-
-            var smoker = try RainbowSmoker.init(allocator, img.*);
-            while (smoker.iterate()) {} else |_| {}
+        var size: usize = 50;
+        var offset: i32 = 0;
+        const gap = 10;
+        for (&img_list) |*img| {
+            offset += gap;
+            const x: i32 = offset;
+            const y: i32 = @intCast(gap);
+            img.* = try Image.init(allocator, size, x, y);
+            offset += @as(i32, @intCast(size));
+            size *= 2;
         }
-        rainbow_smoker = try RainbowSmoker.init(allocator, img_list[0]);
+
+        static_gen = .{ .img = &img_list[0] };
+        static_gen.generate();
+
+        gradient_gen = GradientGenerator{ .img = &img_list[1], .color = .{ 1, 0, 0 } };
+        gradient_gen.generate();
+
+        perlin_gen = .{ .img = &img_list[2] };
+        wave_gen = .{ .img = &img_list[3] };
     }
 
     var update_freq = Freq.init(framerate);
@@ -236,6 +96,10 @@ fn log(_: i64) void {
 }
 
 var time: i64 = 0;
+var last_start_time: i64 = 0;
+var last_iteration_time: i64 = 0;
+const iteration_freq = 10 * std.time.us_per_ms;
+
 fn update(us: i64) void {
     defer input.update();
     framecount += 1;
@@ -246,12 +110,50 @@ fn update(us: i64) void {
         const draw = softsrv.draw;
 
         fb.clear();
-        // const kb = softsrv.input.kb();
-        // {
-        //     if (kb.key(.KC_SPACE).isJustDown()) {
-        //         rainbow_smoker.iterate() catch {};
-        //     }
-        // }
+
+        const kb = softsrv.input.kb();
+        {
+            if (kb.key(.KC_SPACE).isJustDown()) {
+                static_gen.reset();
+
+                gradient_gen.reset();
+                gradient_gen.color = @Vector(3, f32){
+                    prng.random().float(f32),
+                    prng.random().float(f32),
+                    prng.random().float(f32),
+                };
+
+                perlin_gen.reset();
+                perlin_gen.scale = prng.random().float(f32) * 90 + 1;
+
+                wave_gen.reset();
+                wave_gen.color = @Vector(3, f32){
+                    prng.random().float(f32),
+                    prng.random().float(f32),
+                    prng.random().float(f32),
+                };
+
+                wave_gen.phase = @Vector(2, f32){
+                    prng.random().float(f32) * 10,
+                    prng.random().float(f32) * 10,
+                };
+
+                wave_gen.scale = @Vector(2, f32){
+                    prng.random().float(f32) * 25 + 1,
+                    prng.random().float(f32) * 25 + 1,
+                };
+            }
+        }
+
+        const time_since_last_iteration = time - last_iteration_time;
+        if (time_since_last_iteration > iteration_freq) {
+            last_iteration_time = time;
+            static_gen.iterate() catch {};
+            gradient_gen.iterate() catch {};
+            perlin_gen.iterate() catch {};
+            wave_gen.iterate() catch {};
+        }
+
         for (img_list) |img| {
             draw.bitmap(&fb, img.bitmap, img.x, img.y);
         }
@@ -260,63 +162,226 @@ fn update(us: i64) void {
     softsrv.platform.present(&fb);
 }
 
-// SECTION: math
-const Mat3 = @Vector(9, f32);
+const StaticGenerator = struct {
+    img: *Image,
+    iteration: usize = 0,
 
-const Mat = struct {
-    fn identity() Mat3 {
-        return .{
-            1, 0, 0,
-            0, 1, 0,
-            0, 0, 1,
+    pub fn reset(gen: *@This()) void {
+        @memset(gen.img.bitmap.buffer, 0);
+        gen.iteration = 0;
+    }
+
+    pub fn generate(gen: *@This()) void {
+        while (gen.iterate()) {} else |_| {}
+    }
+
+    pub fn iterate(gen: *@This()) !void {
+        if (gen.iteration >= gen.img.pixelCount()) return error.EndOfIterator;
+
+        const col = @Vector(3, u8){
+            prng.random().int(u8),
+            prng.random().int(u8),
+            prng.random().int(u8),
         };
+        gen.img.pixel(gen.iteration, col);
+        gen.iteration += 1;
+    }
+};
+
+const GradientGenerator = struct {
+    img: *Image,
+    iteration: usize = 0,
+    color: @Vector(3, f32),
+
+    pub fn reset(gen: *@This()) void {
+        @memset(gen.img.bitmap.buffer, 0);
+        gen.iteration = 0;
     }
 
-    fn scaling(sx: f32, sy: f32) Mat3 {
-        var result: Mat3 = @splat(0);
-        result[0] = sx;
-        result[4] = sy;
-        result[8] = 1;
-        return result;
+    pub fn generate(gen: *@This()) void {
+        while (gen.iterate()) {} else |_| {}
     }
 
-    fn translation(tx: f32, ty: f32) Mat3 {
-        var result: Mat3 = @splat(0);
-        result[0] = 1;
-        result[2] = tx;
-        result[4] = 1;
-        result[5] = ty;
-        result[8] = 1;
-        return result;
-    }
+    pub fn iterate(gen: *@This()) !void {
+        if (gen.iteration >= gen.img.bitmap.width) return error.EndOfIterator;
 
-    fn rotation(theta: f32) Mat3 {
-        var result: Mat3 = @splat(0);
-        result[0] = @cos(theta);
-        result[1] = -@sin(theta);
-        result[3] = @sin(theta);
-        result[4] = @cos(theta);
-        result[8] = 1;
-        return result;
-    }
-
-    fn mul(a: Mat3, b: Mat3) Mat3 {
-        var result: Mat3 = @splat(0);
-        for (0..3) |i| {
-            for (0..3) |j| {
-                for (0..3) |k| {
-                    result[i * 3 + j] += a[i * 3 + k] * b[k * 3 + j];
-                }
-            }
+        // is setting col or rows faster
+        // i wanna say rows but :shrug:
+        const t = @as(f32, @floatFromInt(gen.iteration)) / @as(f32, @floatFromInt(gen.img.bitmap.width));
+        for (0..gen.img.bitmap.height) |idx| {
+            const col = @Vector(3, u8){
+                @as(u8, @intFromFloat(255 * std.math.lerp(0.0, gen.color[0], t))),
+                @as(u8, @intFromFloat(255 * std.math.lerp(0.0, gen.color[1], t))),
+                @as(u8, @intFromFloat(255 * std.math.lerp(0.0, gen.color[2], t))),
+            };
+            const px = gen.iteration;
+            const py = idx;
+            const pi = px + py * gen.img.bitmap.width;
+            gen.img.pixel(pi, col);
         }
-        return result;
+
+        gen.iteration += 1;
+    }
+};
+
+const WaveGenerator = struct {
+    img: *Image,
+    iteration: usize = 0,
+    phase: @Vector(2, f32) = .{ 1, 2 },
+    color: @Vector(3, f32) = .{ 0.2, 0.8, 0.5 },
+    scale: @Vector(2, f32) = .{ 1, 2 },
+
+    pub fn reset(gen: *@This()) void {
+        @memset(gen.img.bitmap.buffer, 0);
+        gen.iteration = 0;
     }
 
-    fn mulVec(m: Mat3, v: @Vector(2, f32)) @Vector(2, f32) {
-        return .{
-            m[0] * v[0] + m[1] * v[1] + m[2],
-            m[3] * v[0] + m[4] * v[1] + m[5],
+    pub fn generate(gen: *@This()) void {
+        while (gen.iterate()) {} else |_| {}
+    }
+
+    pub fn iterate(gen: *@This()) !void {
+        if (gen.iteration >= gen.img.bitmap.height) return error.EndOfIterator;
+
+        for (0..gen.img.bitmap.height) |idx| {
+            const px = gen.iteration;
+            const py = idx;
+            const pi = px + py * gen.img.bitmap.width;
+            const tx = (@cos((@as(f32, @floatFromInt(px)) + gen.phase[0]) / gen.scale[0]) + 1) / 2;
+            const ty = (@cos((@as(f32, @floatFromInt(py)) + gen.phase[1]) / gen.scale[1]) + 1) / 2;
+            const t = 1 - tx * ty;
+            const col = @Vector(3, u8){
+                @as(u8, @intFromFloat(255 * std.math.lerp(0.0, gen.color[0], t))),
+                @as(u8, @intFromFloat(255 * std.math.lerp(0.0, gen.color[1], t))),
+                @as(u8, @intFromFloat(255 * std.math.lerp(0.0, gen.color[2], t))),
+            };
+            gen.img.pixel(pi, col);
+        }
+        gen.iteration += 1;
+    }
+};
+
+const PerlinNoiseGenerator = struct {
+    img: *Image,
+    iteration: usize = 0,
+    scale: f32 = 25.0,
+
+    pub fn reset(gen: *@This()) void {
+        @memset(gen.img.bitmap.buffer, 0);
+        gen.iteration = 0;
+    }
+
+    pub fn generate(gen: *@This()) void {
+        while (gen.iterate()) {} else |_| {}
+    }
+
+    pub fn iterate(gen: *@This()) !void {
+        if (gen.iteration >= gen.img.bitmap.width) return error.EndOfIterator;
+
+        const w = gen.img.bitmap.width;
+        const h = gen.img.bitmap.height;
+        const x = gen.iteration;
+
+        for (0..h) |y| {
+            // Normalize coordinates to range [0, scale]
+            const nx = @as(f32, @floatFromInt(x)) / @as(f32, @floatFromInt(w)) * gen.scale;
+            const ny = @as(f32, @floatFromInt(y)) / @as(f32, @floatFromInt(h)) * gen.scale;
+
+            var value = perlin(nx, ny);
+
+            // Map the value from [-1, 1] to [0, 1]
+            value = value * 0.5 + 0.5;
+
+            // Map the value to a grayscale color
+            const intensity = @as(u8, @intFromFloat(value * 255.0));
+
+            const col = @Vector(3, u8){ intensity, intensity, intensity };
+
+            const pi = x + y * w;
+            gen.img.pixel(pi, col);
+        }
+
+        gen.iteration += 1;
+    }
+    fn interpolate(a0: f32, a1: f32, w: f32) f32 {
+        return (a1 - a0) * w + a0;
+    }
+
+    fn randomGradient(ix: i32, iy: i32) @Vector(2, f32) {
+        const w = 32; // bits in u32
+        const s = w / 2; // 16
+        const s_shift = @as(u5, @intCast(s));
+        const w_minus_s_shift = @as(u5, @intCast(w - s));
+        var a = @as(u32, @intCast(ix));
+        var b = @as(u32, @intCast(iy));
+        a = a * 3284157443;
+        b = b ^ ((a << s_shift) | (a >> w_minus_s_shift));
+        b = b * 1911520717;
+        a = a ^ ((b << s_shift) | (b >> w_minus_s_shift));
+        a = a * 2048419325;
+        const random = @as(f32, @floatFromInt(a)) * (3.14159265 / 4294967295.0);
+        return @Vector(2, f32){
+            std.math.cos(random),
+            std.math.sin(random),
         };
+    }
+
+    fn dotGridGradient(ix: i32, iy: i32, x: f32, y: f32) f32 {
+        const gradient = randomGradient(ix, iy);
+        const dx = x - @as(f32, @floatFromInt(ix));
+        const dy = y - @as(f32, @floatFromInt(iy));
+        return dx * gradient[0] + dy * gradient[1];
+    }
+
+    fn perlin(x: f32, y: f32) f32 {
+        const x0 = @as(i32, @intFromFloat(@floor(x)));
+        const x1 = x0 + 1;
+        const y0 = @as(i32, @intFromFloat(@floor(y)));
+        const y1 = y0 + 1;
+
+        const sx = x - @as(f32, @floatFromInt(x0));
+        const sy = y - @as(f32, @floatFromInt(y0));
+
+        const n0 = dotGridGradient(x0, y0, x, y);
+        const n1 = dotGridGradient(x1, y0, x, y);
+        const ix0 = interpolate(n0, n1, sx);
+
+        const n2 = dotGridGradient(x0, y1, x, y);
+        const n3 = dotGridGradient(x1, y1, x, y);
+        const ix1 = interpolate(n2, n3, sx);
+
+        return interpolate(ix0, ix1, sy);
+    }
+};
+
+const RainbowSmokeGenerator = struct {
+    img: *Image,
+    iteration: usize = 0,
+    color: @Vector(3, f32),
+
+    pub fn generate(gen: *@This()) void {
+        while (gen.iterate()) {} else |_| {}
+    }
+
+    pub fn iterate(gen: *@This()) !void {
+        if (gen.iteration >= gen.img.bitmap.width) return error.EndOfIterator;
+
+        // is setting col or rows faster
+        // i wanna say rows but :shrug:
+        const t = @as(f32, @floatFromInt(gen.iteration)) / @as(f32, @floatFromInt(gen.img.bitmap.width));
+        for (0..gen.img.bitmap.height) |idx| {
+            const col = @Vector(3, u8){
+                @as(u8, @intFromFloat(255 * std.math.lerp(0.0, gen.color[0], t))),
+                @as(u8, @intFromFloat(255 * std.math.lerp(0.0, gen.color[1], t))),
+                @as(u8, @intFromFloat(255 * std.math.lerp(0.0, gen.color[2], t))),
+            };
+            const px = gen.iteration;
+            const py = idx;
+            const pi = px + py * gen.img.bitmap.width;
+            gen.img.pixel(pi, col);
+        }
+
+        gen.iteration += 1;
     }
 };
 
