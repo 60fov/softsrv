@@ -56,6 +56,13 @@ pub fn build(b: *Build) void {
         .optimize = optimize,
     }, .{});
 
+    addProject(b, .{
+        .name = "particle",
+        .root_source_file = b.path("src/particle.zig"),
+        .target = target,
+        .optimize = optimize,
+    }, .{});
+
     // tests
     const tests = b.addTest(.{
         .root_source_file = .{ .path = "tests.zig" },

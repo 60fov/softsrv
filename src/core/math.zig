@@ -47,14 +47,24 @@ pub const Vector = struct {
             pub fn mulVecScalar(v: Self, s: Element) Self {
                 return Self{ .elem = v.elem * @as(VectorType, @splat(s)) };
             }
+            pub fn mulVecVector(a: Self, b: VectorType) Self {
+                return Self{ .elem = a.elem * b };
+            }
+
             pub fn addVecVec(a: Self, b: Self) Self {
                 return Self{ .elem = a.elem + b.elem };
             }
             pub fn addVecVector(a: Self, b: VectorType) Self {
                 return Self{ .elem = a.elem + b };
             }
+
             pub fn subVecVec(a: Self, b: Self) Self {
                 return Self{ .elem = a.elem - b.elem };
+            }
+            pub fn vecNormalize(v: Self) Self {
+                var result = v;
+                result.normalize();
+                return result;
             }
 
             // implicit functions
@@ -75,26 +85,26 @@ pub const Vector = struct {
             pub fn mulScalar(self: *Self, s: Element) void {
                 self.elem *= @splat(s);
             }
+            pub fn normalize(v: *Self) void {
+                const l2 = v.len2();
+                if (l2 == 0) return;
+                const length = @sqrt(l2);
+                v.mulScalar(1 / length);
+            }
 
+            // fns that don't return a vector
             pub fn dotVec(self: *const Self, v: Self) Element {
                 return @reduce(.Add, self.elem * v.elem);
             }
             pub fn dotVector(self: *const Self, v: VectorType) Element {
                 return @reduce(.Add, self.elem * v);
             }
-
             pub fn len2(v: *const Self) Element {
                 return v.dotVector(v.elem);
             }
             pub fn len(v: *const Self) Element {
                 return @sqrt(v.len2());
             }
-            pub fn normalize(v: *const Self) Element {
-                const l2 = v.len2();
-                if (l2 == 0) return v;
-                return v / l2;
-            }
-
             pub fn angle(v: *const Self) Element {
                 return std.math.atan2(v.elem[1], v.elem[0]);
             }
