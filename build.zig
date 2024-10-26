@@ -3,7 +3,7 @@ const Build = std.Build;
 
 // TODO how to build softsrv a lib (or something)
 
-pub fn build(b: *Build) void {
+pub fn build(b: *Build) !void {
     const install_options: Build.Step.InstallDir.Options = .{
         .source_dir = .{ .path = "assets" },
         .install_dir = .{ .prefix = {} },
@@ -14,54 +14,27 @@ pub fn build(b: *Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    addProject(b, .{
-        .name = "demo",
-        .root_source_file = b.path("src/demo.zig"),
-        .target = target,
-        .optimize = optimize,
-    }, .{});
-
-    addProject(b, .{
-        .name = "pong",
-        .root_source_file = b.path("src/pong.zig"),
-        .target = target,
-        .optimize = optimize,
-    }, .{});
-
-    addProject(b, .{
-        .name = "space_shooter",
-        .root_source_file = b.path("src/space_shooter.zig"),
-        .target = target,
-        .optimize = optimize,
-    }, .{});
-
-    addProject(b, .{
-        .name = "breakout",
-        .root_source_file = b.path("src/breakout.zig"),
-        .target = target,
-        .optimize = optimize,
-    }, .{});
-
-    addProject(b, .{
-        .name = "prey",
-        .root_source_file = b.path("src/prey.zig"),
-        .target = target,
-        .optimize = optimize,
-    }, .{});
-
-    addProject(b, .{
-        .name = "image_gen",
-        .root_source_file = b.path("src/image_gen.zig"),
-        .target = target,
-        .optimize = optimize,
-    }, .{});
-
-    addProject(b, .{
-        .name = "particle",
-        .root_source_file = b.path("src/particle.zig"),
-        .target = target,
-        .optimize = optimize,
-    }, .{});
+    const playground_path = b.path("src/playground/").getPath(b);
+    std.debug.print("building playground files @ {s}\n", .{playground_path});
+    var playground_dir = try std.fs.openDirAbsolute(playground_path, .{ .iterate = true });
+    var playground_dir_iter = playground_dir.iterate();
+    while (playground_dir_iter.next()) |entry_or_null| {
+        if (entry_or_null) |entry| {
+            switch (entry.kind) {
+                .file => {
+                    std.debug.print("building {s}\n", .{entry.name});
+                    addProject(b, .{
+                        .name = std.fs.path.stem(entry.name),
+                        .root_source_file = b.path(b.pathJoin(&.{ "src", entry.name })),
+                        .target = target,
+                        .optimize = optimize,
+                    }, .{});
+                },
+                else => {},
+            }
+        } else break;
+    } else |_| {}
+    std.debug.print("done!\n", .{});
 
     // tests
     const tests = b.addTest(.{
