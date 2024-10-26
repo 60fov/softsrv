@@ -1,40 +1,48 @@
 const std = @import("std");
 const Build = std.Build;
 
-// TODO how to build softsrv a lib (or something)
-
 pub fn build(b: *Build) !void {
-    const install_options: Build.Step.InstallDir.Options = .{
-        .source_dir = .{ .path = "assets" },
-        .install_dir = .{ .prefix = {} },
-        .install_subdir = "assets",
-    };
-    b.installDirectory(install_options);
-
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const playground_path = b.path("src/playground/").getPath(b);
-    std.debug.print("building playground files @ {s}\n", .{playground_path});
-    var playground_dir = try std.fs.openDirAbsolute(playground_path, .{ .iterate = true });
-    var playground_dir_iter = playground_dir.iterate();
-    while (playground_dir_iter.next()) |entry_or_null| {
-        if (entry_or_null) |entry| {
-            switch (entry.kind) {
-                .file => {
-                    std.debug.print("building {s}\n", .{entry.name});
-                    addProject(b, .{
-                        .name = std.fs.path.stem(entry.name),
-                        .root_source_file = b.path(b.pathJoin(&.{ "src", entry.name })),
-                        .target = target,
-                        .optimize = optimize,
-                    }, .{});
-                },
-                else => {},
-            }
-        } else break;
-    } else |_| {}
-    std.debug.print("done!\n", .{});
+    // TODO demo
+
+    // module for other build system import
+    _ = b.addModule("softsrv", .{
+        .root_source_file = b.path("src/softsrv.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // static lib
+    const lib_static = b.addStaticLibrary(.{
+        .name = "softsrv",
+        .root_source_file = b.path("src/softsrv.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    linkSystemDep(target, lib_static);
+    const lib_static_install = b.addInstallArtifact(lib_static, .{});
+    const step_static = b.step("static", "build static library");
+    step_static.dependOn(&lib_static_install.step);
+
+    // dynamic lib
+    const lib_dynamic = b.addSharedLibrary(.{
+        .name = "softsrv",
+        .root_source_file = b.path("src/softsrv.zig"),
+        .target = target,
+        .optimize = optimize,
+        .version = .{ .major = 0, .minor = 0, .patch = 0 },
+    });
+    linkSystemDep(target, lib_dynamic);
+    const lib_dynamic_install = b.addInstallArtifact(lib_dynamic, .{});
+    const step_dynamic = b.step("dynamic", "build dynamic library");
+    step_dynamic.dependOn(&lib_dynamic_install.step);
+
+    // install both on `zig build`
+    const step_install = b.getInstallStep();
+    step_install.dependOn(step_dynamic);
+    step_install.dependOn(step_static);
 
     // tests
     const tests = b.addTest(.{
@@ -83,35 +91,5 @@ fn linkSystemDep(target: std.Build.ResolvedTarget, compile: *Build.Step.Compile)
         //     });
         // },
         else => @panic("unhandled os"),
-    }
-}
-
-const ProjectOptions = struct {
-    install_on_run: bool = true,
-    link_sys_deps: bool = true,
-    add_run_step: bool = true,
-};
-
-fn addProject(b: *Build, exe_options: std.Build.ExecutableOptions, proj_options: ProjectOptions) void {
-    const exe = b.addExecutable(exe_options);
-
-    if (proj_options.link_sys_deps) linkSystemDep(exe_options.target, exe);
-
-    var scratch: [1024]u8 = undefined;
-    const name = exe_options.name;
-
-    const build_desc = std.fmt.bufPrint(scratch[0..], "build project {s}", .{name}) catch unreachable;
-    const build_step = b.step(name, build_desc);
-    const build_exe = b.addInstallArtifact(exe, .{});
-    build_step.dependOn(b.getInstallStep());
-    build_step.dependOn(&build_exe.step);
-
-    if (proj_options.add_run_step) {
-        const run_name = std.fmt.bufPrint(scratch[0..], "run-{s}", .{name}) catch unreachable;
-        const run_desc = std.fmt.bufPrint(scratch[512..], "run project {s}", .{name}) catch unreachable;
-        const run_step = b.step(run_name, run_desc);
-        const run_exe = b.addRunArtifact(exe);
-        if (proj_options.install_on_run) run_step.dependOn(&build_exe.step);
-        run_step.dependOn(&run_exe.step);
     }
 }

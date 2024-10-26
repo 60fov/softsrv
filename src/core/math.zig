@@ -24,8 +24,20 @@ pub const AABB = struct {
         };
     }
 };
+pub fn Rect(comptime T: type) type {
+    return struct {
+        x: T = 0,
+        y: T = 0,
+        w: T = 0,
+        h: T = 0,
+    };
+}
 
-// this is mostly for future abstraction (lazy absraction? lol)
+pub const Collision = struct {
+    pub fn aabb(a: AABB, b: AABB) bool {
+        return !(a.l > b.r or a.t > b.b or a.r < b.l or a.b < b.t);
+    }
+};
 
 pub const Vector = struct {
     // TODO: how to differentiate implicit functions
@@ -112,17 +124,62 @@ pub const Vector = struct {
     }
 };
 
-pub fn Rect(comptime T: type) type {
-    return struct {
-        x: T = 0,
-        y: T = 0,
-        w: T = 0,
-        h: T = 0,
-    };
-}
+const Mat3 = @Vector(9, f32);
 
-pub const Collision = struct {
-    pub fn aabb(a: AABB, b: AABB) bool {
-        return !(a.l > b.r or a.t > b.b or a.r < b.l or a.b < b.t);
+// TODO support for not 3x3 matrices
+const Mat = struct {
+    fn identity() Mat3 {
+        return .{
+            1, 0, 0,
+            0, 1, 0,
+            0, 0, 1,
+        };
+    }
+
+    fn scaling(sx: f32, sy: f32) Mat3 {
+        var result: Mat3 = @splat(0);
+        result[0] = sx;
+        result[4] = sy;
+        result[8] = 1;
+        return result;
+    }
+
+    fn translation(tx: f32, ty: f32) Mat3 {
+        var result: Mat3 = @splat(0);
+        result[0] = 1;
+        result[2] = tx;
+        result[4] = 1;
+        result[5] = ty;
+        result[8] = 1;
+        return result;
+    }
+
+    fn rotation(theta: f32) Mat3 {
+        var result: Mat3 = @splat(0);
+        result[0] = @cos(theta);
+        result[1] = -@sin(theta);
+        result[3] = @sin(theta);
+        result[4] = @cos(theta);
+        result[8] = 1;
+        return result;
+    }
+
+    fn mul(a: Mat3, b: Mat3) Mat3 {
+        var result: Mat3 = @splat(0);
+        for (0..3) |i| {
+            for (0..3) |j| {
+                for (0..3) |k| {
+                    result[i * 3 + j] += a[i * 3 + k] * b[k * 3 + j];
+                }
+            }
+        }
+        return result;
+    }
+
+    fn mulVec(m: Mat3, v: @Vector(2, f32)) @Vector(2, f32) {
+        return .{
+            m[0] * v[0] + m[1] * v[1] + m[2],
+            m[3] * v[0] + m[4] * v[1] + m[5],
+        };
     }
 };

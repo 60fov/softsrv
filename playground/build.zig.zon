@@ -1,0 +1,13 @@
+.{
+    .name = "playground",
+    .version = "0.0.0",
+    .dependencies = .{
+        .softsrv = .{
+            .url = "..\\.",
+            .hash = "1220a4906a7e230fb1823155eb7eebc9fb9c1f117dc8472ec61dc44acd5d266207f0",
+        },
+    },
+    .paths = .{
+        "",
+    },
+}

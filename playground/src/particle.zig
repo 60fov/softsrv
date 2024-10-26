@@ -41,7 +41,7 @@
 // You must have showcase different particle emitters getting created and destroyed. Your emitters should showcase a variety of different effects (smoke, fire, explosion, water splashing, etc).
 
 const std = @import("std");
-const softsrv = @import("softsrv.zig");
+const softsrv = @import("softsrv");
 
 const Vec = softsrv.math.Vector.Vec;
 
