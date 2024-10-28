@@ -53,7 +53,7 @@ pub const RateLimiter = struct {
     }
 
     /// same as `stepAll` but calls `func` every step
-    pub fn call(self: *RateLimiter, func: *const fn (i64, *anyopaque) void, ctx: *anyopaque) void {
+    pub fn call(self: *RateLimiter, func: *const fn (i64, ?*anyopaque) void, ctx: ?*anyopaque) void {
         self.update();
 
         // TODO death spiral if update func takes longer than ms

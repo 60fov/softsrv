@@ -33,8 +33,8 @@ pub fn main() !void {
 
         fb = try softsrv.Framebuffer.init(allocator, width, height);
 
-        game = try allocator.create(GameState);
-        game.* = try GameState.init(allocator);
+        // game = try allocator.create(GameState);
+        // game.* = try GameState.init(allocator);
     }
 
     var update_freq = RateLimiter.init(framerate);
@@ -43,27 +43,24 @@ pub fn main() !void {
     while (!softsrv.platform.shouldQuit()) {
         std.time.sleep(0);
         softsrv.platform.poll();
-        update_freq.call(update);
-        log_freq.call(log);
+        update_freq.call(update, null);
+        log_freq.call(log, null);
     }
 }
 
 var framecount: u32 = 0;
-fn log(_: i64) void {
+fn log(_: i64, _: ?*anyopaque) void {
     std.debug.print("{}\n", .{framecount});
     framecount = 0;
 }
 
 var time: i64 = 0;
-fn update(us: i64) void {
+fn update(us: i64, _: ?*anyopaque) void {
     defer softsrv.input.update();
     framecount += 1;
     time += us;
     const dt: f32 = @as(f32, @floatFromInt(us)) / @as(f32, (std.time.us_per_s));
     _ = dt;
-
-    const frame_arena = &game.memory.frame_arena;
-    _ = frame_arena.reset(.free_all);
 
     { // update predator
     }
