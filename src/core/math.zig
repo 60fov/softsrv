@@ -78,6 +78,12 @@ pub const Vector = struct {
                 result.normalize();
                 return result;
             }
+            pub fn fromAngle(angle: f32) Self {
+                return Vec(2, f32).init(.{
+                    @cos(angle),
+                    @sin(angle),
+                });
+            }
 
             // implicit functions
             pub fn addVec(self: *Self, v: Self) void {
@@ -104,6 +110,13 @@ pub const Vector = struct {
                 v.mulScalar(1 / length);
             }
 
+            pub fn vecFrom(self: *const Self, target: Self) void {
+                return Self.subVecVec(self, target);
+            }
+            pub fn vecTo(self: *const Self, target: Self) void {
+                return Self.subVecVec(target, self);
+            }
+
             // fns that don't return a vector
             pub fn dotVec(self: *const Self, v: Self) Element {
                 return @reduce(.Add, self.elem * v.elem);
@@ -117,7 +130,7 @@ pub const Vector = struct {
             pub fn len(v: *const Self) Element {
                 return @sqrt(v.len2());
             }
-            pub fn angle(v: *const Self) Element {
+            pub fn getAngle(v: *const Self) Element {
                 return std.math.atan2(v.elem[1], v.elem[0]);
             }
         };

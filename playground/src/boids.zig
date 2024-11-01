@@ -24,7 +24,180 @@ const Memory = genMemoryType(megabytes(5), kilobytes(5), megabytes(5));
 var fb: softsrv.Framebuffer = undefined;
 var game: *GameState = undefined;
 
-const GameState = struct {};
+const GameState = struct {
+    allocator: std.mem.Allocator,
+    entity_storage_list: [std.enums.values(EntityKind).len]EntityStorage,
+
+    fn entityAdd(self: *GameState, kind: EntityKind, entity: *Entity) void {
+        const entity_storage = &self.entity_storage_list[@intFromEnum(entity.kind)];
+        if (entity_storage.free_list.items.len > 0) {
+            const free_idx = entity_storage.free_list.pop();
+            const old_ent = entity_storage.list.items[free_idx];
+            entity.handle.gen = old_ent.handle.gen;
+            entity.handle.id = free_idx;
+            entity.handle.kind = kind;
+            entity_storage.list.items[free_idx] = entity.*;
+        }
+    }
+
+    fn entityRemove(self: *GameState, handle: EntityHandle) void {
+        const entity_storage = &self.entity_storage_list[@intFromEnum(handle.kind)];
+        const entity = &entity_storage.list.items[handle.id];
+        // TODO
+        entity.handle.gen
+    }
+
+    fn update(self: *GameState, dt: f32) void {
+        const boid_storage = self.entity_storage_list[EntityKind.boid];
+
+        const angular_velocity: f32 = std.math.pi * 2 / 1;
+        const collect_avoid = try DistanceCollector.init(self.allocator, 100);
+        const collect_converge = try DistanceCollector.init(self.allocator, 100);
+        const collect_align = try DistanceCollector.init(self.allocator, 100);
+
+        for (boid_storage.list) |boid| {
+            if (!boid.alive) continue;
+            for (boid_storage.list) |peer| {
+                if (!peer.alive) continue;
+                if (boid.handle.eql(peer.handle)) continue;
+                // both boid and other boid are alive and not equal
+                const vec_from_boid_to_peer = Vec(2, f32).subVecVec(peer.pos, boid.pos);
+                const dist2 = vec_from_boid_to_peer.len2();
+                if (dist2 <= collect_avoid.radius2) try collect_avoid.list.append(peer);
+                if (dist2 <= collect_converge.radius2) try collect_converge.list.append(peer);
+                if (dist2 <= collect_align.radius2) try collect_align.list.append(peer);
+            }
+            // convergance/cohesion vector
+            var vec_converge = Vec(2, f32).init(.{ 0, 0 });
+            if (collect_converge.list.items.len > 0) {
+                var pos_avg = Vec(2, f32).init(.{ 0, 0 });
+                for (collect_converge.list.items) |peer| {
+                    pos_avg.addVec(peer.pos);
+                }
+                pos_avg.mulScalar(1 / collect_converge.list.items.len);
+                vec_converge = pos_avg.mulVecScalar(-1);
+                vec_converge.normalize();
+            }
+
+            // avoid vector
+            var vec_avoid = Vec(2, f32).init(.{ 0, 0 });
+            if (collect_avoid.list.items.len > 0) {
+                for (collect_avoid.list.items) |peer| {
+                    const vec_from_peer = boid.pos.subVecVec(peer.pos);
+                    const dist2 = vec_from_peer.len2();
+                    const weight = collect_avoid.radius2 - dist2;
+                    vec_avoid.addVec(vec_from_peer.mulVecScalar(weight));
+                }
+                vec_avoid.normalize();
+            }
+
+            // align vector
+            var vec_align = Vec(2, f32).init(.{ 0, 0 });
+            if (collect_align.list.items.len > 0) {
+                var vel_avg = Vec(2, f32).init(.{ 0, 0 });
+                for (collect_align.list.items) |peer| {
+                    vel_avg.addVec(peer.vel);
+                }
+                vel_avg.mulScalar(1 / collect_align.list.items.len);
+                // angular_vel (rad / sec) = 2pi / 1
+                // delta_theta (rad) = pi
+                // t = 0.5
+                // t = delta_theta / alpha
+                const delta_theta: f32 = @abs(boid.vel.angle() - vel_avg.angle());
+                const t: f32 = delta_theta / angular_velocity;
+                const new_angle: f32 = std.math.lerp(boid.vel.angle(), vel_avg.angle(), t);
+                vec_align = Vec(2, f32).fromAngle(new_angle);
+            }
+
+            // const dv = Vec(2, f32).init(.{ 0, 0 });
+            boid.vel.addVec(vec_converge);
+            boid.vel.addVec(vec_align);
+            boid.vel.addVec(vec_avoid);
+            boid.vel.normalize();
+            boid.vel.mulScalar(100 * dt);
+        }
+    }
+};
+
+const DistanceCollector = struct {
+    radius2: u32,
+    list: std.ArrayList(Entity),
+
+    fn init(allocator: std.mem.Allocator, radius: u32) !DistanceCollector {
+        return .{
+            .radius2 = radius * radius,
+            .list = try std.ArrayList(Entity).init(allocator),
+        };
+    }
+};
+const EntityKind = enum(u8) {
+    boid = 1,
+    hunter = 2,
+};
+const EntityStorage = struct {
+    list: std.ArrayListUnmanaged(Entity),
+    free_list: std.ArrayListUnmanaged(u32),
+};
+const Entity = struct {
+    handle: EntityHandle,
+
+    pos: Vec(2, f32),
+    vel: Vec(2, f32),
+    alive: bool,
+};
+const EntityHandle = struct {
+    id: u32,
+    gen: u32,
+    kind: EntityKind,
+
+    fn eql(a: EntityHandle, b: EntityHandle) bool {
+        return std.mem.eql(EntityHandle, &.{a}, &.{b});
+    }
+};
+
+fn DynamicList(T: type) type {
+    return struct {
+        const Self = @This();
+
+        buf: []T,
+        count: usize = 0,
+
+        fn initAlloc(allocator: std.mem.Allocator, size: usize) Self {
+            return .{
+                .buf = try allocator.alloc(T, size),
+            };
+        }
+
+        fn free(self: *Self, allocator: std.mem.Allocator) void {
+            allocator.free(self.buf);
+            self.* = undefined;
+        }
+
+        fn push(self: *Self, item: T) void {
+            std.debug.assert(self.count < self.buf.len);
+            self.buf[self.count] = item;
+            self.count += 1;
+        }
+
+        fn pop(self: *Self) T {
+            std.debug.assert(self.count > 0);
+            self.count -= 1;
+            return self.buf[self.count];
+        }
+
+        fn removeSwap(self: *Self, idx: usize) T {
+            std.debug.assert(self.count > 0);
+            std.debug.assert(idx < self.count);
+            self.count -= 1;
+            std.mem.swap(T, self.buf[idx], self.buf[self.count]);
+            return self.buf[self.count];
+        }
+
+        fn items(self: Self) []T {
+            return self.buf[0..self.count];
+        }
+    };
+}
 
 pub fn main() !void {
     { // allocate state
