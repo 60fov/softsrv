@@ -25,37 +25,76 @@ var fb: softsrv.Framebuffer = undefined;
 var game: *GameState = undefined;
 
 const GameState = struct {
-    allocator: std.mem.Allocator,
+    assets: Assets,
+    arena: std.heap.ArenaAllocator,
     entity_storage_list: [std.enums.values(EntityKind).len]EntityStorage,
 
-    fn entityAdd(self: *GameState, kind: EntityKind, entity: *Entity) void {
-        const entity_storage = &self.entity_storage_list[@intFromEnum(entity.kind)];
+    fn init(allocator: std.mem.Allocator) !GameState {
+        var result = GameState{
+            .assets = try Assets.init(allocator),
+            .entity_storage_list = undefined,
+            .arena = undefined,
+        };
+
+        result.entity_storage_list[@intFromEnum(EntityKind.boid)] = try EntityStorage.init(allocator, 100);
+        result.entity_storage_list[@intFromEnum(EntityKind.hunter)] = try EntityStorage.init(allocator, 10);
+
+        const arena_buf = try allocator.alloc(u8, megabytes(5));
+        var arena_fba = std.heap.FixedBufferAllocator.init(arena_buf);
+        result.arena = std.heap.ArenaAllocator.init(arena_fba.allocator());
+
+        return result;
+    }
+
+    /// `entity.handle` is updated
+    fn entityAdd(self: *GameState, kind: EntityKind, entity: *Entity) !void {
+        const entity_storage = &self.entity_storage_list[@intFromEnum(entity.handle.kind)];
         if (entity_storage.free_list.items.len > 0) {
-            const free_idx = entity_storage.free_list.pop();
-            const old_ent = entity_storage.list.items[free_idx];
-            entity.handle.gen = old_ent.handle.gen;
-            entity.handle.id = free_idx;
+            const id = entity_storage.free_list.pop();
+            const entity_slot = entity_storage.list[id];
+            entity.handle.gen = entity_slot.handle.gen;
+            entity.handle.id = id;
             entity.handle.kind = kind;
-            entity_storage.list.items[free_idx] = entity.*;
+            entity_storage.list[id] = entity.*;
+        } else {
+            return error.EntityListFull;
         }
     }
 
-    fn entityRemove(self: *GameState, handle: EntityHandle) void {
+    fn entityRemove(self: *GameState, handle: EntityHandle) !void {
         const entity_storage = &self.entity_storage_list[@intFromEnum(handle.kind)];
-        const entity = &entity_storage.list.items[handle.id];
-        // TODO
-        entity.handle.gen
+        const entity_slot = &entity_storage.list[handle.id];
+        if (EntityHandle.eql(handle, entity_slot.handle)) {
+            entity_slot.handle.gen += 1;
+            entity_storage.free_list.appendAssumeCapacity(handle.id);
+        } else {
+            return error.HandleMismatch;
+        }
+    }
+
+    fn getEntity(self: GameState, handle: EntityHandle) Entity {
+        const entity_storage = &self.entity_storage_list[@intFromEnum(handle.kind)];
+        const entity_slot = &entity_storage.list[handle.id];
+        // TODO consider making more error cases
+        if (EntityHandle.eql(handle, entity_slot.handle)) {
+            return entity_slot;
+        } else {
+            return error.HandleInvalid;
+        }
     }
 
     fn update(self: *GameState, dt: f32) void {
-        const boid_storage = self.entity_storage_list[EntityKind.boid];
+        const allocator = self.arena.allocator();
+        defer _ = self.arena.reset(.free_all);
 
-        const angular_velocity: f32 = std.math.pi * 2 / 1;
-        const collect_avoid = try DistanceCollector.init(self.allocator, 100);
-        const collect_converge = try DistanceCollector.init(self.allocator, 100);
-        const collect_align = try DistanceCollector.init(self.allocator, 100);
+        const boid_storage = self.entity_storage_list[@intFromEnum(EntityKind.boid)];
 
-        for (boid_storage.list) |boid| {
+        const angular_velocity: f32 = std.math.pi * 2.0 / 1.0;
+        var collect_avoid = DistanceCollector.init(allocator, 100);
+        var collect_converge = DistanceCollector.init(allocator, 100);
+        var collect_align = DistanceCollector.init(allocator, 100);
+
+        for (boid_storage.list) |*boid| {
             if (!boid.alive) continue;
             for (boid_storage.list) |peer| {
                 if (!peer.alive) continue;
@@ -63,9 +102,9 @@ const GameState = struct {
                 // both boid and other boid are alive and not equal
                 const vec_from_boid_to_peer = Vec(2, f32).subVecVec(peer.pos, boid.pos);
                 const dist2 = vec_from_boid_to_peer.len2();
-                if (dist2 <= collect_avoid.radius2) try collect_avoid.list.append(peer);
-                if (dist2 <= collect_converge.radius2) try collect_converge.list.append(peer);
-                if (dist2 <= collect_align.radius2) try collect_align.list.append(peer);
+                if (dist2 <= collect_avoid.radius2) collect_avoid.list.append(peer) catch {};
+                if (dist2 <= collect_converge.radius2) collect_converge.list.append(peer) catch {};
+                if (dist2 <= collect_align.radius2) collect_align.list.append(peer) catch {};
             }
             // convergance/cohesion vector
             var vec_converge = Vec(2, f32).init(.{ 0, 0 });
@@ -74,7 +113,7 @@ const GameState = struct {
                 for (collect_converge.list.items) |peer| {
                     pos_avg.addVec(peer.pos);
                 }
-                pos_avg.mulScalar(1 / collect_converge.list.items.len);
+                pos_avg.mulScalar(1.0 / @as(f32, @floatFromInt(collect_converge.list.items.len)));
                 vec_converge = pos_avg.mulVecScalar(-1);
                 vec_converge.normalize();
             }
@@ -98,14 +137,14 @@ const GameState = struct {
                 for (collect_align.list.items) |peer| {
                     vel_avg.addVec(peer.vel);
                 }
-                vel_avg.mulScalar(1 / collect_align.list.items.len);
+                vel_avg.mulScalar(1.0 / @as(f32, @floatFromInt(collect_align.list.items.len)));
                 // angular_vel (rad / sec) = 2pi / 1
                 // delta_theta (rad) = pi
                 // t = 0.5
                 // t = delta_theta / alpha
-                const delta_theta: f32 = @abs(boid.vel.angle() - vel_avg.angle());
+                const delta_theta: f32 = @abs(boid.vel.getAngle() - vel_avg.getAngle());
                 const t: f32 = delta_theta / angular_velocity;
-                const new_angle: f32 = std.math.lerp(boid.vel.angle(), vel_avg.angle(), t);
+                const new_angle: f32 = std.math.lerp(boid.vel.getAngle(), vel_avg.getAngle(), t);
                 vec_align = Vec(2, f32).fromAngle(new_angle);
             }
 
@@ -115,43 +154,59 @@ const GameState = struct {
             boid.vel.addVec(vec_avoid);
             boid.vel.normalize();
             boid.vel.mulScalar(100 * dt);
+
+            boid.pos.addVec(boid.vel);
         }
     }
 };
 
 const DistanceCollector = struct {
-    radius2: u32,
+    radius2: f32,
     list: std.ArrayList(Entity),
 
-    fn init(allocator: std.mem.Allocator, radius: u32) !DistanceCollector {
+    fn init(allocator: std.mem.Allocator, radius: f32) DistanceCollector {
         return .{
             .radius2 = radius * radius,
-            .list = try std.ArrayList(Entity).init(allocator),
+            .list = std.ArrayList(Entity).init(allocator),
         };
     }
 };
 const EntityKind = enum(u8) {
-    boid = 1,
-    hunter = 2,
+    boid,
+    hunter,
 };
 const EntityStorage = struct {
-    list: std.ArrayListUnmanaged(Entity),
+    list: []Entity,
     free_list: std.ArrayListUnmanaged(u32),
+
+    /// fills `EntityStorage.free_list` with `EntityStorage.list` indices in desc order
+    fn init(allocator: std.mem.Allocator, max_count: usize) !EntityStorage {
+        var result = EntityStorage{
+            .list = try allocator.alloc(Entity, max_count),
+            .free_list = try std.ArrayListUnmanaged(u32).initCapacity(allocator, max_count),
+        };
+        for (0..max_count) |idx| {
+            const id = max_count - idx - 1;
+            result.free_list.appendAssumeCapacity(@intCast(id));
+        }
+        return result;
+    }
 };
 const Entity = struct {
-    handle: EntityHandle,
+    handle: EntityHandle = undefined,
 
     pos: Vec(2, f32),
     vel: Vec(2, f32),
     alive: bool,
 };
 const EntityHandle = struct {
-    id: u32,
+    /// index into `EntityStorage.list`
+    id: usize,
     gen: u32,
     kind: EntityKind,
 
     fn eql(a: EntityHandle, b: EntityHandle) bool {
-        return std.mem.eql(EntityHandle, &.{a}, &.{b});
+        return a.id == b.id and a.gen == b.gen and a.kind == b.kind;
     }
 };
 
@@ -202,12 +257,28 @@ fn DynamicList(T: type) type {
 pub fn main() !void {
     { // allocate state
         const allocator = std.heap.page_allocator;
+
         try softsrv.platform.init(allocator, "space shooter", width, height);
 
         fb = try softsrv.Framebuffer.init(allocator, width, height);
 
-        // game = try allocator.create(GameState);
-        // game.* = try GameState.init(allocator);
+        game = try allocator.create(GameState);
+        game.* = try GameState.init(allocator);
+        var prng = std.Random.DefaultPrng.init(1);
+
+        for (0..20) |_| {
+            try game.entityAdd(.boid, @constCast(&.{
+                .alive = true,
+                .pos = Vec(2, f32).init(.{
+                    prng.random().float(f32) * 600 + 100,
+                    prng.random().float(f32) * 600 + 100,
+                }),
+                .vel = Vec(2, f32).init(.{
+                    prng.random().float(f32),
+                    prng.random().float(f32),
+                }),
+            }));
+        }
     }
 
     var update_freq = RateLimiter.init(framerate);
@@ -233,12 +304,9 @@ fn update(us: i64, _: ?*anyopaque) void {
     framecount += 1;
     time += us;
     const dt: f32 = @as(f32, @floatFromInt(us)) / @as(f32, (std.time.us_per_s));
-    _ = dt;
 
-    { // update predator
-    }
-
-    { // update prey
+    { // update
+        game.update(dt);
     }
 
     { // draw
@@ -246,6 +314,21 @@ fn update(us: i64, _: ?*anyopaque) void {
 
         fb.clear();
         _ = draw;
+
+        const boid_storage = &game.entity_storage_list[@intFromEnum(EntityKind.boid)];
+        for (boid_storage.list) |boid| {
+            if (!boid.alive) continue;
+            draw_poly(
+                game.assets.boid_poly,
+                @as(i32, @intFromFloat(boid.pos.elem[0])),
+                @as(i32, @intFromFloat(boid.pos.elem[1])),
+                6.0,
+                boid.vel.getAngle(),
+                255,
+                255,
+                255,
+            );
+        }
     }
 
     softsrv.platform.present(&fb);
