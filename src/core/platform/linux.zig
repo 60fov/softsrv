@@ -253,6 +253,7 @@ fn keysym2code(keysym: u32) input.Keyboard.Keycode {
         c.XKB_KEY_Left => .KC_LEFT,
         c.XKB_KEY_Right => .KC_RIGHT,
         c.XKB_KEY_space => .KC_SPACE,
+        c.XKB_KEY_d, c.XKB_KEY_D => .KC_D,
         else => .UNKNOWN,
     };
 }

@@ -30,6 +30,7 @@ const GameState = struct {
     memory: Memory,
     assets: Assets,
     entity_storage_list: [std.enums.values(EntityKind).len]EntityStorage,
+    debug: bool,
 
     fn init(allocator: std.mem.Allocator) !GameState {
         var result = GameState{
@@ -38,6 +39,7 @@ const GameState = struct {
             .memory = try Memory.init(allocator),
             .assets = undefined,
             .entity_storage_list = undefined,
+            .debug = false,
         };
 
         result.assets = try Assets.init(result.memory.persist_fba.allocator());
@@ -86,17 +88,49 @@ const GameState = struct {
 
     fn update(self: *GameState, dt: f32) void {
         var arena = self.memory.frame_arena;
-        // const te = arena.allocator().alloc(Entity, 100) catch unreachable;
-        // const te = std.ArrayList(Entity).initCapacity(arena.allocator(), 1);
-        // std.debug.print("te addr {any}\n", .{te});
 
         const hunter_storage = self.entity_storage_list[@intFromEnum(EntityKind.hunter)];
         const boid_storage = self.entity_storage_list[@intFromEnum(EntityKind.boid)];
 
-        const hunter_range = 20;
-        const hunter_eat_range = 1;
         for (hunter_storage.list) |*hunter| {
             if (!hunter.alive) continue;
+            defer _ = arena.reset(.free_all);
+            const allocator = arena.allocator();
+
+            const hunter_range = 20;
+            const hunter_eat_range = 4;
+            const avoid_peer_factor = 10;
+            const avoid_bounds_factor = 1;
+
+            var accel = Vec(2, f32).init(.{ 0, 0 });
+
+            var near_hunter_list = std.ArrayList(Entity).init(allocator);
+            for (hunter_storage.list) |peer| {
+                if (!peer.alive) continue;
+                if (hunter.handle.eql(peer.handle)) continue;
+
+                const vec_to_peer = hunter.pos.vecTo(peer.pos);
+                const dist = vec_to_peer.len();
+                if (dist <= hunter_range) near_hunter_list.append(peer) catch {};
+            }
+
+            // avoid peers
+            var dir_from_peers_weighted_avg = Vec(2, f32).init(.{ 0, 0 });
+            if (near_hunter_list.items.len > 0) {
+                for (near_hunter_list.items) |peer| {
+                    const vec_from_peer = hunter.pos.subVecVec(peer.pos);
+                    const dist = vec_from_peer.len();
+                    const weight = hunter_range - dist;
+                    dir_from_peers_weighted_avg.addVec(vec_from_peer.mulVecScalar(weight));
+                }
+                dir_from_peers_weighted_avg.mulScalar(1 / @as(f32, @floatFromInt(near_hunter_list.items.len)));
+
+                const avoid_accel = dir_from_peers_weighted_avg
+                    .vecNormalize()
+                    .mulVecScalar(avoid_peer_factor);
+                accel.addVec(avoid_accel);
+            }
+
             if (hunter.target) |target| {
                 const prey_or_null = game.getEntity(target);
                 if (prey_or_null) |prey| {
@@ -108,8 +142,7 @@ const GameState = struct {
                         };
                     } else {
                         // hunter is in chase
-                        hunter.vel.addVec(vec_to_prey);
-                        hunter.vel.clamp(Entity.hunter_chase_speed, Entity.hunter_chase_speed);
+                        accel.addVec(vec_to_prey);
                     }
                 } else {
                     // hunter's target has despawned
@@ -130,182 +163,185 @@ const GameState = struct {
                 if (closest_prey_in_range) |new_target| {
                     hunter.target = new_target.handle;
                 }
+            }
 
-                hunter.vel.clamp(Entity.hunter_prowl_speed, Entity.hunter_prowl_speed);
+            const nearest_in_bound_angle = getNearestInBoundsAngle(hunter.*);
+            if (nearest_in_bound_angle) |angle| {
+                const avoid_bounds_accel = Vec(2, f32)
+                    .fromAngle(angle)
+                    .vecFrom(hunter.vel.vecNormalize())
+                    .mulVecScalar(avoid_bounds_factor);
+                accel.addVec(avoid_bounds_accel);
             }
 
             // move hunters
+            hunter.vel.addVec(accel);
+            if (hunter.target == null) {
+                hunter.vel.clamp(Entity.hunter_prowl_speed, Entity.hunter_prowl_speed);
+            } else {
+                hunter.vel.clamp(Entity.hunter_chase_speed, Entity.hunter_chase_speed);
+            }
             hunter.pos.addVec(hunter.vel.mulVecScalar(dt));
         }
 
-        const DistanceCollector = struct {
-            radius: f32,
-            list: std.ArrayList(Entity),
-        };
-
+        // update boids
         for (boid_storage.list) |*boid| {
             if (!boid.alive) continue;
             defer _ = arena.reset(.free_all);
-            const allocator = if (false) std.heap.page_allocator else arena.allocator();
-            var collect_avoid = DistanceCollector{
-                .radius = 50,
-                .list = std.ArrayList(Entity).init(allocator),
-            };
-            var collect_converge = DistanceCollector{
-                .radius = 50,
-                .list = std.ArrayList(Entity).init(allocator),
-            };
-            var collect_align = DistanceCollector{
-                .radius = 50,
-                .list = std.ArrayList(Entity).init(allocator),
-            };
-            var collect_hunters = DistanceCollector{
-                .radius = 50,
-                .list = std.ArrayList(Entity).init(allocator),
-            };
+            const allocator = arena.allocator();
+
+            const avoid_radius = 20;
+            const converge_radius = 50;
+            const align_radius = 70;
+            const hunter_radius = 100;
+
+            const converge_factor: f32 = 1;
+            const cohesion_factor: f32 = 1;
+            const avoid_factor: f32 = 2;
+            const align_factor: f32 = 1;
+            const center_factor: f32 = 1;
+            const avoid_hunter_factor: f32 = 8;
+            const avoid_bounds_factor: f32 = 10;
+
+            var align_list = std.ArrayList(Entity).init(allocator);
+            var avoid_list = std.ArrayList(Entity).init(allocator);
+            var converge_list = std.ArrayList(Entity).init(allocator);
+            var hunter_list = std.ArrayList(Entity).init(allocator);
+
+            // collect boids
             for (boid_storage.list) |peer| {
                 if (!peer.alive) continue;
                 if (boid.handle.eql(peer.handle)) continue;
                 // both boid and other boid are alive and not equal
                 const vec_from_boid_to_peer = Vec(2, f32).subVecVec(peer.pos, boid.pos);
                 const dist = vec_from_boid_to_peer.len();
-                if (dist <= collect_avoid.radius) collect_avoid.list.append(peer) catch {};
-                if (dist <= collect_converge.radius) collect_converge.list.append(peer) catch {};
-                if (dist <= collect_align.radius) collect_align.list.append(peer) catch {};
+                if (dist <= avoid_radius) avoid_list.append(peer) catch {};
+                if (dist <= converge_radius) converge_list.append(peer) catch {};
+                if (dist <= align_radius) align_list.append(peer) catch {};
             }
+
+            // collect hunters
             for (hunter_storage.list) |hunter| {
                 if (!hunter.alive) continue;
                 const vec_from_hunter = boid.pos.vecFrom(hunter.pos);
                 const dist = vec_from_hunter.len();
-                if (dist <= collect_hunters.radius and hunter.target != null) {
-                    collect_hunters.list.append(hunter) catch {};
+                if (dist <= hunter_radius and hunter.target != null) {
+                    hunter_list.append(hunter) catch {};
                 }
             }
 
-            const boid_angle = boid.vel.getAngle();
+            var accel = Vec(2, f32).init(.{ 0, 0 });
+            const boid_vel_normalized = boid.vel.vecNormalize();
 
-            // convergance/cohesion: average position and speed of local boids
+            // convergance on average peer position and match velocity
             var converge_pos = Vec(2, f32).init(.{ 0, 0 });
             var cohesion_speed: f32 = 0.0;
-            if (collect_converge.list.items.len > 0) {
-                for (collect_converge.list.items) |peer| {
+            if (converge_list.items.len > 0) {
+                for (converge_list.items) |peer| {
                     converge_pos.addVec(peer.pos);
                     cohesion_speed += peer.vel.len();
                 }
-                converge_pos.mulScalar(1.0 / @as(f32, @floatFromInt(collect_converge.list.items.len)));
-                cohesion_speed /= @as(f32, @floatFromInt(collect_converge.list.items.len));
+                converge_pos.mulScalar(1.0 / @as(f32, @floatFromInt(converge_list.items.len)));
+                cohesion_speed /= @as(f32, @floatFromInt(converge_list.items.len));
             }
 
-            // avoidance: weight average of vector from local boids
-            var avoid_vec = Vec(2, f32).init(.{ 0, 0 });
-            if (collect_avoid.list.items.len > 0) {
-                for (collect_avoid.list.items) |peer| {
-                    const vec_from_peer = boid.pos.subVecVec(peer.pos);
-                    const dist = vec_from_peer.len();
-                    const weight = collect_avoid.radius - dist;
-                    avoid_vec.addVec(vec_from_peer.mulVecScalar(weight));
-                }
-                avoid_vec.mulScalar(1 / @as(f32, @floatFromInt(collect_avoid.list.items.len)));
-                avoid_vec.normalize();
-            }
-
-            // alignment: average direction of local boids
-            var align_angle: f32 = 0.0;
-            if (collect_align.list.items.len > 0) {
-                for (collect_align.list.items) |peer| {
-                    align_angle += peer.vel.getAngle();
-                }
-                align_angle /= @as(f32, @floatFromInt(collect_align.list.items.len));
-            }
-
-            // avoid edge
-            var avoid_bounds_angle: f32 = 0.0;
-            {
-                const bounds_check_range = 100;
-                const margin = self.margin;
-                const radian_segments = 32;
-                const segment_theta: f32 = std.math.pi * 2.0 / @as(f32, @floatFromInt(radian_segments));
-                var rad_seg: usize = 0;
-                angle_search: while (rad_seg < radian_segments) {
-                    const alpha: f32 = @as(f32, @floatFromInt(rad_seg)) * segment_theta;
-                    for ([_]f32{ -1.0, 1.0 }) |dir| {
-                        const delta_angle = boid_angle + alpha * dir;
-                        const nx = boid.pos.elem[0] + @cos(delta_angle) * bounds_check_range;
-                        const ny = boid.pos.elem[1] + @sin(delta_angle) * bounds_check_range;
-                        if (nx >= margin and ny >= margin and nx < (width - margin) and ny < (height - margin)) {
-                            avoid_bounds_angle = delta_angle;
-                            break :angle_search;
-                        }
-                    }
-                    rad_seg += 1;
-                }
-            }
-
-            // avoid hunters
-            var avoid_hunter_vec = Vec(2, f32).init(.{ 0, 0 });
-            if (collect_hunters.list.items.len > 0) {
-                for (collect_hunters.list.items) |hunter| {
-                    const vec_from_hunter = boid.pos.vecFrom(hunter.pos);
-                    avoid_hunter_vec.addVec(vec_from_hunter);
-                    softsrv.draw.line(
-                        &fb,
-                        @as(i32, @intFromFloat(boid.pos.elem[0])),
-                        @as(i32, @intFromFloat(boid.pos.elem[1])),
-                        @as(i32, @intFromFloat(hunter.pos.elem[0])),
-                        @as(i32, @intFromFloat(hunter.pos.elem[1])),
-                        125,
-                        125,
-                        255,
-                    );
-                }
-                avoid_hunter_vec.mulScalar(1 / @as(f32, @floatFromInt(collect_hunters.list.items.len)));
-                avoid_hunter_vec.normalize();
-            }
-
-            const boid_vel_normalized = boid.vel.vecNormalize();
-
-            const converge_factor: f32 = 0.00;
-            const converge_vec = converge_pos
+            const converge_accel = converge_pos
                 .vecFrom(boid.pos)
                 .vecNormalize()
                 .mulVecScalar(converge_factor);
-            boid.vel.addVec(converge_vec);
+            accel.addVec(converge_accel);
 
-            const avoid_factor: f32 = 1;
-            boid.vel.addVec(avoid_vec.mulVecScalar(avoid_factor));
+            const cohesion_accel = boid_vel_normalized
+                .mulVecScalar(-1)
+                .mulVecScalar(cohesion_factor);
+            accel.addVec(cohesion_accel);
 
-            const avoid_bounds_factor: f32 = 1;
-            const avoid_bounds_vec = Vec(2, f32)
-                .fromAngle(avoid_bounds_angle)
-                .vecFrom(boid_vel_normalized)
-                .mulVecScalar(avoid_bounds_factor);
-            boid.vel.addVec(avoid_bounds_vec);
+            // avoid peers
+            var dir_from_peers_weighted_avg = Vec(2, f32).init(.{ 0, 0 });
+            if (avoid_list.items.len > 0) {
+                for (avoid_list.items) |peer| {
+                    const vec_from_peer = boid.pos.subVecVec(peer.pos);
+                    const dist = vec_from_peer.len();
+                    const weight = avoid_radius - dist;
+                    dir_from_peers_weighted_avg.addVec(vec_from_peer.mulVecScalar(weight));
+                }
+                dir_from_peers_weighted_avg.mulScalar(1 / @as(f32, @floatFromInt(avoid_list.items.len)));
+            }
 
-            const align_factor: f32 = 1;
-            const align_vec = Vec(2, f32)
+            const avoid_accel = dir_from_peers_weighted_avg
+                .vecNormalize()
+                .mulVecScalar(avoid_factor);
+            accel.addVec(avoid_accel);
+
+            // align with peers
+            var align_angle: f32 = 0.0;
+            if (align_list.items.len > 0) {
+                for (align_list.items) |peer| {
+                    align_angle += peer.vel.getAngle();
+                }
+                align_angle /= @as(f32, @floatFromInt(align_list.items.len));
+            }
+
+            const align_accel = Vec(2, f32)
                 .fromAngle(align_angle)
                 .vecFrom(boid_vel_normalized)
                 .mulVecScalar(align_factor);
-            boid.vel.addVec(align_vec);
+            accel.addVec(align_accel);
 
-            const center_factor: f32 = 1;
+            // avoid edge
+            const avoid_bounds_angle = getNearestInBoundsAngle(boid.*);
+            if (avoid_bounds_angle) |angle| {
+                const avoid_bounds_accel = Vec(2, f32)
+                    .fromAngle(angle)
+                    .vecFrom(boid_vel_normalized)
+                    .mulVecScalar(avoid_bounds_factor);
+                accel.addVec(avoid_bounds_accel);
+            }
+
+            // avoid hunters
+            var vec_from_near_hunters_weighted_avg = Vec(2, f32).init(.{ 0, 0 });
+            if (hunter_list.items.len > 0) {
+                for (hunter_list.items) |hunter| {
+                    const vec_from_hunter = boid.pos.vecFrom(hunter.pos);
+                    vec_from_near_hunters_weighted_avg.addVec(vec_from_hunter);
+                    if (self.debug) {
+                        softsrv.draw.line(
+                            &fb,
+                            @as(i32, @intFromFloat(boid.pos.elem[0])),
+                            @as(i32, @intFromFloat(boid.pos.elem[1])),
+                            @as(i32, @intFromFloat(hunter.pos.elem[0])),
+                            @as(i32, @intFromFloat(hunter.pos.elem[1])),
+                            125,
+                            125,
+                            255,
+                        );
+                    }
+                }
+                vec_from_near_hunters_weighted_avg.mulScalar(1 / @as(f32, @floatFromInt(hunter_list.items.len)));
+                vec_from_near_hunters_weighted_avg.normalize();
+            }
+            const avoid_hunter_accel = vec_from_near_hunters_weighted_avg
+                .vecNormalize()
+                .mulVecScalar(avoid_hunter_factor);
+            accel.addVec(avoid_hunter_accel);
+
+            // move towards center
             const center_vec = Vec(2, f32)
                 .init(.{ width / 2, height / 2 })
                 .vecFrom(boid.pos)
                 .vecNormalize()
                 .mulVecScalar(center_factor);
-            boid.vel.addVec(center_vec);
+            accel.addVec(center_vec);
 
-            const avoid_hunter_factor: f32 = 100;
-            boid.vel.addVec(avoid_hunter_vec.vecNormalize().mulVecScalar(avoid_hunter_factor));
-
-            if (collect_hunters.list.items.len > 0) {
+            boid.vel.addVec(accel);
+            if (hunter_list.items.len > 0) {
                 boid.vel.clamp(Entity.boid_min_speed, Entity.boid_panic_speed);
             } else {
                 boid.vel.clamp(Entity.boid_min_speed, Entity.boid_max_speed);
             }
-            boid.pos.addVec(boid.vel.mulVecScalar(dt));
 
+            // move boid
+            boid.pos.addVec(boid.vel.mulVecScalar(dt));
             // wrap around screen edge
             // if (boid.pos.elem[0] < 0) boid.pos.elem[0] = width;
             // if (boid.pos.elem[1] < 0) boid.pos.elem[1] = height;
@@ -314,6 +350,28 @@ const GameState = struct {
         }
     }
 };
+
+fn getNearestInBoundsAngle(entity: Entity) ?f32 {
+    const bounds_check_range = 100;
+    const radian_segments = 32;
+    const margin = game.margin;
+    const angle = entity.vel.getAngle();
+    const segment_theta: f32 = std.math.pi * 2.0 / @as(f32, @floatFromInt(radian_segments));
+    var rad_seg: usize = 0;
+    while (rad_seg < radian_segments) {
+        const alpha: f32 = @as(f32, @floatFromInt(rad_seg)) * segment_theta;
+        for ([_]f32{ -1.0, 1.0 }) |dir| {
+            const delta_angle = angle + alpha * dir;
+            const nx = entity.pos.elem[0] + @cos(delta_angle) * bounds_check_range;
+            const ny = entity.pos.elem[1] + @sin(delta_angle) * bounds_check_range;
+            if (nx >= margin and ny >= margin and nx < (width - margin) and ny < (height - margin)) {
+                return delta_angle;
+            }
+        }
+        rad_seg += 1;
+    }
+    return null;
+}
 
 const EntityKind = enum(u8) {
     boid,
@@ -341,7 +399,7 @@ const Entity = struct {
     const hunter_max_count = 10;
     const boid_min_speed = 150.0;
     const boid_max_speed = 250.0;
-    const boid_panic_speed = 500.0;
+    const boid_panic_speed = 290.0;
     const hunter_prowl_speed = 20.0;
     const hunter_chase_speed = 300.0;
     handle: EntityHandle = undefined,
@@ -420,6 +478,8 @@ fn update(us: i64, _: ?*anyopaque) void {
     const dt: f32 = @as(f32, @floatFromInt(us)) / @as(f32, (std.time.us_per_s));
 
     { // update
+        if (softsrv.input.kb().key(.KC_D).isJustDown()) game.debug = !game.debug;
+
         if (softsrv.input.kb().key(.KC_SPACE).isJustDown()) {
             const angle = game.prng.random().float(f32) * 2 * std.math.pi;
             game.entityAdd(.hunter, @constCast(&Entity{
@@ -443,7 +503,7 @@ fn update(us: i64, _: ?*anyopaque) void {
         for (boid_storage.list) |boid| {
             const boid_angle = boid.vel.getAngle();
             if (!boid.alive) continue;
-            if (boid.debug) {
+            if (boid.debug and game.debug) {
                 const p2 = boid.pos.addVecVec(Vec(2, f32).fromAngle(boid_angle).mulVecScalar(20));
                 draw.line(
                     &fb,
@@ -462,38 +522,14 @@ fn update(us: i64, _: ?*anyopaque) void {
                 @as(i32, @intFromFloat(boid.pos.elem[1])),
                 3.5,
                 boid_angle,
-                if (boid.debug) 0 else 255,
+                if (boid.debug and game.debug) 0 else 255,
                 255,
                 255,
             );
         }
         const hunter_storage = &game.entity_storage_list[@intFromEnum(EntityKind.hunter)];
         for (hunter_storage.list) |hunter| {
-            // const hunter_angle = hunter.vel.getAngle();
             if (!hunter.alive) continue;
-            if (hunter.debug) {
-                // const p2 = hunter.pos.addVecVec(Vec(2, f32).fromAngle(hunter_angle).mulVecScalar(20));
-                // draw.line(
-                //     &fb,
-                //     @as(i32, (@intFromFloat(hunter.pos.elem[0]))),
-                //     @as(i32, (@intFromFloat(hunter.pos.elem[1]))),
-                //     @as(i32, (@intFromFloat(p2.elem[0]))),
-                //     @as(i32, (@intFromFloat(p2.elem[1]))),
-                //     255,
-                //     0,
-                //     0,
-                // );
-            }
-            // draw_poly(
-            //     game.assets.hunter_poly,
-            //     @as(i32, @intFromFloat(hunter.pos.elem[0])),
-            //     @as(i32, @intFromFloat(hunter.pos.elem[1])),
-            //     3.5,
-            //     hunter_angle,
-            //     if (hunter.debug) 0 else 255,
-            //     255,
-            //     255,
-            // );
             softsrv.draw.rect(
                 &fb,
                 @as(i32, @intFromFloat(hunter.pos.elem[0])),

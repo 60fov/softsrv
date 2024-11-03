@@ -7,8 +7,8 @@ pub const font = @import("core/font.zig");
 pub const asset = @import("core/asset.zig");
 pub const mem = @import("core/mem.zig");
 pub const ds = struct {
-    // pub const FreeList = @import("core/free_list.zig").FreeList;
     pub usingnamespace @import("core/free_list.zig");
+    pub usingnamespace @import("core/dynamic_list.zig");
 };
 
 pub const Framebuffer = @import("core/framebuffer.zig");
