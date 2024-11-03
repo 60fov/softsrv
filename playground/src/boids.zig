@@ -19,37 +19,37 @@ const width = 800;
 const height = 600;
 const framerate = 300;
 
-const Memory = genMemoryType(megabytes(5), kilobytes(5), megabytes(10));
+const Memory = genMemoryType(megabytes(5), kilobytes(5), megabytes(100));
 
 var fb: softsrv.Framebuffer = undefined;
 var game: *GameState = undefined;
 
 const GameState = struct {
-    assets: Assets,
-    memory: Memory,
-    entity_storage_list: [std.enums.values(EntityKind).len]EntityStorage,
     margin: f32,
     prng: std.Random.DefaultPrng,
+    memory: Memory,
+    assets: Assets,
+    entity_storage_list: [std.enums.values(EntityKind).len]EntityStorage,
 
     fn init(allocator: std.mem.Allocator) !GameState {
-        var memory = try Memory.init(allocator);
         var result = GameState{
-            .memory = memory,
-            .assets = try Assets.init(memory.persist_fba.allocator()),
-            .entity_storage_list = undefined,
             .margin = 20,
             .prng = std.Random.DefaultPrng.init(43157890),
+            .memory = try Memory.init(allocator),
+            .assets = undefined,
+            .entity_storage_list = undefined,
         };
 
-        result.entity_storage_list[@intFromEnum(EntityKind.boid)] = try EntityStorage.init(memory.persist_fba.allocator(), 100);
-        result.entity_storage_list[@intFromEnum(EntityKind.hunter)] = try EntityStorage.init(memory.persist_fba.allocator(), 10);
+        result.assets = try Assets.init(result.memory.persist_fba.allocator());
+        result.entity_storage_list[@intFromEnum(EntityKind.boid)] = try EntityStorage.init(result.memory.persist_fba.allocator(), Entity.boid_max_count);
+        result.entity_storage_list[@intFromEnum(EntityKind.hunter)] = try EntityStorage.init(result.memory.persist_fba.allocator(), Entity.hunter_max_count);
 
         return result;
     }
 
     /// `entity.handle` is updated
     fn entityAdd(self: *GameState, kind: EntityKind, entity: *Entity) !void {
-        const entity_storage = &self.entity_storage_list[@intFromEnum(entity.handle.kind)];
+        const entity_storage = &self.entity_storage_list[@intFromEnum(kind)];
         if (entity_storage.free_list.items.len > 0) {
             const id = entity_storage.free_list.pop();
             const entity_slot = entity_storage.list[id];
@@ -85,8 +85,10 @@ const GameState = struct {
     }
 
     fn update(self: *GameState, dt: f32) void {
-        const arena = &self.memory.frame_arena;
-        defer _ = arena.reset(.free_all);
+        var arena = self.memory.frame_arena;
+        // const te = arena.allocator().alloc(Entity, 100) catch unreachable;
+        // const te = std.ArrayList(Entity).initCapacity(arena.allocator(), 1);
+        // std.debug.print("te addr {any}\n", .{te});
 
         const hunter_storage = self.entity_storage_list[@intFromEnum(EntityKind.hunter)];
         const boid_storage = self.entity_storage_list[@intFromEnum(EntityKind.boid)];
@@ -136,13 +138,31 @@ const GameState = struct {
             hunter.pos.addVec(hunter.vel.mulVecScalar(dt));
         }
 
+        const DistanceCollector = struct {
+            radius: f32,
+            list: std.ArrayList(Entity),
+        };
+
         for (boid_storage.list) |*boid| {
             if (!boid.alive) continue;
-            var collect_avoid = DistanceCollector.init(arena.allocator(), 20);
-            var collect_converge = DistanceCollector.init(arena.allocator(), 30);
-            var collect_hunters = DistanceCollector.init(arena.allocator(), 100);
-            var collect_align = DistanceCollector.init(arena.allocator(), 50);
             defer _ = arena.reset(.free_all);
+            const allocator = if (false) std.heap.page_allocator else arena.allocator();
+            var collect_avoid = DistanceCollector{
+                .radius = 50,
+                .list = std.ArrayList(Entity).init(allocator),
+            };
+            var collect_converge = DistanceCollector{
+                .radius = 50,
+                .list = std.ArrayList(Entity).init(allocator),
+            };
+            var collect_align = DistanceCollector{
+                .radius = 50,
+                .list = std.ArrayList(Entity).init(allocator),
+            };
+            var collect_hunters = DistanceCollector{
+                .radius = 50,
+                .list = std.ArrayList(Entity).init(allocator),
+            };
             for (boid_storage.list) |peer| {
                 if (!peer.alive) continue;
                 if (boid.handle.eql(peer.handle)) continue;
@@ -158,20 +178,7 @@ const GameState = struct {
                 const vec_from_hunter = boid.pos.vecFrom(hunter.pos);
                 const dist = vec_from_hunter.len();
                 if (dist <= collect_hunters.radius and hunter.target != null) {
-                    // why tf this happen AHHHHHHHHH
-                    collect_hunters.list.append(hunter) catch |err| {
-                        if (boid.debug) std.debug.print("alloc error {s}\n", .{@errorName(err)});
-                        // softsrv.draw.line(
-                        //     &fb,
-                        //     @as(i32, @intFromFloat(boid.pos.elem[0])),
-                        //     @as(i32, @intFromFloat(boid.pos.elem[1])),
-                        //     @as(i32, @intFromFloat(hunter.pos.elem[0])),
-                        //     @as(i32, @intFromFloat(hunter.pos.elem[1])),
-                        //     125,
-                        //     125,
-                        //     255,
-                        // );
-                    };
+                    collect_hunters.list.append(hunter) catch {};
                 }
             }
 
@@ -240,6 +247,16 @@ const GameState = struct {
                 for (collect_hunters.list.items) |hunter| {
                     const vec_from_hunter = boid.pos.vecFrom(hunter.pos);
                     avoid_hunter_vec.addVec(vec_from_hunter);
+                    softsrv.draw.line(
+                        &fb,
+                        @as(i32, @intFromFloat(boid.pos.elem[0])),
+                        @as(i32, @intFromFloat(boid.pos.elem[1])),
+                        @as(i32, @intFromFloat(hunter.pos.elem[0])),
+                        @as(i32, @intFromFloat(hunter.pos.elem[1])),
+                        125,
+                        125,
+                        255,
+                    );
                 }
                 avoid_hunter_vec.mulScalar(1 / @as(f32, @floatFromInt(collect_hunters.list.items.len)));
                 avoid_hunter_vec.normalize();
@@ -298,17 +315,6 @@ const GameState = struct {
     }
 };
 
-const DistanceCollector = struct {
-    radius: f32,
-    list: std.ArrayList(Entity),
-
-    fn init(allocator: std.mem.Allocator, radius: f32) DistanceCollector {
-        return .{
-            .radius = radius,
-            .list = std.ArrayList(Entity).initCapacity(allocator, 100) catch unreachable,
-        };
-    }
-};
 const EntityKind = enum(u8) {
     boid,
     hunter,
@@ -331,6 +337,8 @@ const EntityStorage = struct {
     }
 };
 const Entity = struct {
+    const boid_max_count = 100;
+    const hunter_max_count = 10;
     const boid_min_speed = 150.0;
     const boid_max_speed = 250.0;
     const boid_panic_speed = 500.0;
@@ -356,55 +364,11 @@ const EntityHandle = struct {
     }
 };
 
-fn DynamicList(T: type) type {
-    return struct {
-        const Self = @This();
-
-        buf: []T,
-        count: usize = 0,
-
-        fn initAlloc(allocator: std.mem.Allocator, size: usize) Self {
-            return .{
-                .buf = try allocator.alloc(T, size),
-            };
-        }
-
-        fn free(self: *Self, allocator: std.mem.Allocator) void {
-            allocator.free(self.buf);
-            self.* = undefined;
-        }
-
-        fn push(self: *Self, item: T) void {
-            std.debug.assert(self.count < self.buf.len);
-            self.buf[self.count] = item;
-            self.count += 1;
-        }
-
-        fn pop(self: *Self) T {
-            std.debug.assert(self.count > 0);
-            self.count -= 1;
-            return self.buf[self.count];
-        }
-
-        fn removeSwap(self: *Self, idx: usize) T {
-            std.debug.assert(self.count > 0);
-            std.debug.assert(idx < self.count);
-            self.count -= 1;
-            std.mem.swap(T, self.buf[idx], self.buf[self.count]);
-            return self.buf[self.count];
-        }
-
-        fn items(self: Self) []T {
-            return self.buf[0..self.count];
-        }
-    };
-}
-
 pub fn main() !void {
     { // allocate state
         const allocator = std.heap.page_allocator;
 
-        try softsrv.platform.init(allocator, "space shooter", width, height);
+        try softsrv.platform.init(allocator, "boids", width, height);
 
         fb = try softsrv.Framebuffer.init(allocator, width, height);
 
@@ -614,6 +578,7 @@ pub fn genMemoryType(persist_size: comptime_int, scratch_size: comptime_int, fra
             var mem_slicer = softsrv.mem.BufferSlicer(u8){ .buffer = buf };
 
             var result: Self = undefined;
+            result.buf = buf;
             result.buf_persist = mem_slicer.slice(persist_buf_size);
             result.buf_scratch = mem_slicer.slice(scratch_buf_size);
             result.buf_frame = mem_slicer.slice(frame_buf_size);
