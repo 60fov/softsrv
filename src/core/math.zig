@@ -109,11 +109,18 @@ pub const Vector = struct {
                 const length = @sqrt(l2);
                 v.mulScalar(1 / length);
             }
+            pub fn clamp(v: *Self, low: Element, high: Element) void {
+                std.debug.assert(low <= high);
+                const length = v.len();
+                std.debug.assert(length > 0);
+                const new_length = @min(high, @max(length, low));
+                v.mulScalar(1 / length * new_length);
+            }
 
-            pub fn vecFrom(self: *const Self, target: Self) void {
+            pub fn vecFrom(self: Self, target: Self) Self {
                 return Self.subVecVec(self, target);
             }
-            pub fn vecTo(self: *const Self, target: Self) void {
+            pub fn vecTo(self: Self, target: Self) Self {
                 return Self.subVecVec(target, self);
             }
 
