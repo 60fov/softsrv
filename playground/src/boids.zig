@@ -55,9 +55,11 @@ const GameState = struct {
         if (entity_storage.free_list.items.len > 0) {
             const id = entity_storage.free_list.pop();
             const entity_slot = entity_storage.list[id];
-            entity.handle.gen = entity_slot.handle.gen;
-            entity.handle.id = id;
-            entity.handle.kind = kind;
+            entity.handle = .{
+                .gen = entity_slot.handle.gen,
+                .id = id,
+                .kind = kind,
+            };
             entity_storage.list[id] = entity.*;
         } else {
             return error.EntityListFull;
@@ -72,11 +74,19 @@ const GameState = struct {
             entity_slot.handle.gen += 1;
             entity_storage.free_list.appendAssumeCapacity(handle.id);
         } else {
-            return error.HandleMismatch;
+            return error.HandleInvalid;
         }
     }
 
-    fn getEntity(self: GameState, handle: EntityHandle) ?*Entity {
+    fn entityMarkForDeletion(self: *GameState, handle: EntityHandle) !void {
+        if (self.entityGet(handle)) |entity| {
+            entity.handle.should_delete = true;
+        } else {
+            return error.HandleInvalid;
+        }
+    }
+
+    fn entityGet(self: GameState, handle: EntityHandle) ?*Entity {
         const entity_storage = &self.entity_storage_list[@intFromEnum(handle.kind)];
         const entity_slot = &entity_storage.list[handle.id];
         if (EntityHandle.eql(handle, entity_slot.handle)) {
@@ -132,14 +142,12 @@ const GameState = struct {
             }
 
             if (hunter.target) |target| {
-                const prey_or_null = game.getEntity(target);
+                const prey_or_null = game.entityGet(target);
                 if (prey_or_null) |prey| {
                     const vec_to_prey = hunter.pos.vecTo(prey.pos);
                     if (vec_to_prey.len() < hunter_eat_range) {
                         // prey is in range to be eaten (O_Q)
-                        game.entityRemove(prey.handle) catch |err| {
-                            std.debug.print("prey can eat: {s}\n", .{@errorName(err)});
-                        };
+                        game.entityMarkForDeletion(target) catch {};
                     } else {
                         // hunter is in chase
                         accel.addVec(vec_to_prey);
@@ -348,6 +356,15 @@ const GameState = struct {
             // if (boid.pos.elem[0] > width) boid.pos.elem[0] = 0;
             // if (boid.pos.elem[1] > height) boid.pos.elem[1] = 0;
         }
+
+        // delete marked entities
+        for (game.entity_storage_list) |storage| {
+            for (storage.list) |entity| {
+                if (entity.alive and entity.handle.should_delete) {
+                    game.entityRemove(entity.handle) catch {};
+                }
+            }
+        }
     }
 };
 
@@ -402,6 +419,7 @@ const Entity = struct {
     const boid_panic_speed = 290.0;
     const hunter_prowl_speed = 20.0;
     const hunter_chase_speed = 300.0;
+
     handle: EntityHandle = undefined,
 
     pos: Vec(2, f32),
@@ -416,6 +434,7 @@ const EntityHandle = struct {
     id: usize,
     gen: u32,
     kind: EntityKind,
+    should_delete: bool = false,
 
     fn eql(a: EntityHandle, b: EntityHandle) bool {
         return a.id == b.id and a.gen == b.gen and a.kind == b.kind;
@@ -454,6 +473,7 @@ pub fn main() !void {
     var update_freq = RateLimiter.init(framerate);
     var log_freq = RateLimiter.init(1);
 
+    std.debug.print("press space to spawn a hunter\n", .{});
     while (!softsrv.platform.shouldQuit()) {
         std.time.sleep(0);
         softsrv.platform.poll();
@@ -464,7 +484,7 @@ pub fn main() !void {
 
 var framecount: u32 = 0;
 fn log(_: i64, _: ?*anyopaque) void {
-    std.debug.print("{}\n", .{framecount});
+    // std.debug.print("{}\n", .{framecount});
     framecount = 0;
 }
 
