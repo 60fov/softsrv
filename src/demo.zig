@@ -9,6 +9,10 @@ var allura: softsrv.Image.Bitmap = undefined;
 var fb: softsrv.Framebuffer = undefined;
 var font: softsrv.font.BitmapFont = undefined;
 
+// TODO
+// linux kb input and mouse
+// obj files
+
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
 

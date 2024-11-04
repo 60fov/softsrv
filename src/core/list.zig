@@ -1,12 +1,49 @@
 const std = @import("std");
 
-pub const FreeListError = error{
-    Full,
-    Empty,
-    IndexInvalid,
-    IndexAlreadyFreed,
-};
+pub fn FixedBufferList(T: type) type {
+    return struct {
+        const Self = @This();
 
+        items: []T,
+        capacity: usize,
+
+        pub fn init(buf: []T) Self {
+            return .{
+                .items = buf[0..0],
+                .capacity = buf.len,
+            };
+        }
+
+        pub fn append(self: *Self, item: T) void {
+            std.debug.assert(self.items.len < self.capacity);
+            self.items.len += 1;
+            self.items[self.items.len - 1] = item;
+        }
+
+        pub fn appendSlice(self: *Self, items: []T) void {
+            std.debug.assert(self.items.len + items.len <= self.capacity);
+            const start = self.items.len;
+            self.items.len += items.len;
+            @memcpy(self.items[start..], items);
+        }
+
+        pub fn pop(self: *Self) T {
+            std.debug.assert(self.items.len > 0);
+            self.items.len -= 1;
+            return self.items[self.items.len];
+        }
+
+        pub fn removeSwap(self: *Self, idx: usize) T {
+            std.debug.assert(self.items.len > 0);
+            std.debug.assert(idx < self.items.len);
+            self.items.len -= 1;
+            std.mem.swap(T, self.items[idx], self.items[self.items.len]);
+            return self.items[self.items.len];
+        }
+    };
+}
+
+// TODO is this a valuable abstraction?
 pub fn FreeList(ElementType: type) type {
     return struct {
         const Self = @This();
@@ -69,3 +106,10 @@ pub fn FreeList(ElementType: type) type {
         }
     };
 }
+
+pub const FreeListError = error{
+    Full,
+    Empty,
+    IndexInvalid,
+    IndexAlreadyFreed,
+};
