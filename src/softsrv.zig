@@ -6,6 +6,7 @@ pub const math = @import("core/math.zig");
 pub const font = @import("core/font.zig");
 pub const asset = @import("core/asset.zig");
 pub const mem = @import("core/mem.zig");
+pub const parser = @import("core/parser.zig");
 pub const ds = struct {
     pub usingnamespace @import("core/list.zig");
 };

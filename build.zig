@@ -5,8 +5,6 @@ pub fn build(b: *Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // TODO demo
-
     // module for other build system import
     _ = b.addModule("softsrv", .{
         .root_source_file = b.path("src/softsrv.zig"),
@@ -43,6 +41,19 @@ pub fn build(b: *Build) !void {
     const step_install = b.getInstallStep();
     step_install.dependOn(step_dynamic);
     step_install.dependOn(step_static);
+
+    const demo = b.addExecutable(.{
+        .name = "demo",
+        .root_source_file = .{ .path = "src/demo.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+    linkSystemDep(target, demo);
+    const demo_install = b.addInstallArtifact(demo, .{});
+    const demo_run = b.addRunArtifact(demo);
+    const step_demo = b.step("demo", "run demo");
+    demo_run.step.dependOn(&demo_install.step);
+    step_demo.dependOn(&demo_run.step);
 
     // tests
     const tests = b.addTest(.{

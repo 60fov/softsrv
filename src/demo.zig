@@ -5,9 +5,10 @@ const width = 800;
 const height = 600;
 const framerate = 300;
 
-var allura: softsrv.Image.Bitmap = undefined;
+var allura: softsrv.image.Bitmap = undefined;
 var fb: softsrv.Framebuffer = undefined;
 var font: softsrv.font.BitmapFont = undefined;
+var obj: softsrv.parser.WavefrontObj = undefined;
 
 // TODO
 // linux kb input and mouse
@@ -22,11 +23,17 @@ pub fn main() !void {
     fb = try softsrv.Framebuffer.init(allocator, width, height);
     defer fb.deinit();
 
-    allura = try softsrv.Image.loadPPM(allocator, "assets/allura.ppm");
+    allura = try softsrv.image.loadPPM(allocator, "assets/allura.ppm");
     defer allura.deinit(allocator);
 
     font = try softsrv.font.BitmapFont.load(allocator, "assets/fonts/cure.bdf");
     defer font.deinit(allocator);
+
+    const obj_file = try std.fs.cwd().openFile("assets/models/Wolfen_2/Wolfen2.obj", .{});
+    const obj_file_buffer = try obj_file.readToEndAlloc(allocator, softsrv.mem.gigabytes(1));
+    defer allocator.free(obj_file_buffer);
+    const obj_token_list = try softsrv.parser.WavefrontObj.lexBuffer(allocator, obj_file_buffer);
+    obj = try softsrv.parser.WavefrontObj.parseLexicalTokenList(allocator, obj_token_list);
 
     var update_freq = Freq.init(framerate);
     var log_freq = Freq.init(1);
@@ -74,6 +81,21 @@ fn update(ms: i64) void {
     softsrv.draw.line(&fb, x, y, x - 100 - dy, y + 50 + dx, 0, 225, 160); // green
     softsrv.draw.line(&fb, x, y, x - 100 + dy, y - 50 - dx, 255, 126, 126); // orange
     softsrv.draw.line(&fb, x, y, x + 100 - dy, y - 50 - dx, 255, 255, 255); // white
+
+    for (0..obj.vertex_list.len - 1) |idx| {
+        const v1 = obj.vertex_list[idx];
+        const v2 = obj.vertex_list[idx + 1];
+        softsrv.draw.line(
+            &fb,
+            @as(i32, @intFromFloat(v1[0])),
+            @as(i32, @intFromFloat(v1[1])),
+            @as(i32, @intFromFloat(v2[0] * 100)),
+            @as(i32, @intFromFloat(v2[1] * 100)),
+            255,
+            255,
+            255,
+        ); // white
+    }
 
     // time demo
     var time_0: f64 = @floatFromInt(std.time.microTimestamp());
