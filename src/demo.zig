@@ -33,6 +33,14 @@ pub fn main() !void {
     const obj_file_buffer = try obj_file.readToEndAlloc(allocator, softsrv.mem.gigabytes(1));
     defer allocator.free(obj_file_buffer);
     const obj_token_list = try softsrv.parser.WavefrontObj.lexBuffer(allocator, obj_file_buffer);
+    // const obj_token_list = try softsrv.parser.WavefrontObj.lexBuffer(allocator,
+    //     \\v 0 0 0
+    //     \\v 1 0 0
+    //     \\v 1 1 0
+    //     \\v 0 0 0
+    //     \\v 1 1 0
+    //     \\v 0 1 0
+    // );
     obj = try softsrv.parser.WavefrontObj.parseLexicalTokenList(allocator, obj_token_list);
 
     var update_freq = Freq.init(framerate);
@@ -82,19 +90,27 @@ fn update(ms: i64) void {
     softsrv.draw.line(&fb, x, y, x - 100 + dy, y - 50 - dx, 255, 126, 126); // orange
     softsrv.draw.line(&fb, x, y, x + 100 - dy, y - 50 - dx, 255, 255, 255); // white
 
-    for (0..obj.vertex_list.len - 1) |idx| {
-        const v1 = obj.vertex_list[idx];
-        const v2 = obj.vertex_list[idx + 1];
-        softsrv.draw.line(
-            &fb,
-            @as(i32, @intFromFloat(v1[0])),
-            @as(i32, @intFromFloat(v1[1])),
-            @as(i32, @intFromFloat(v2[0] * 100)),
-            @as(i32, @intFromFloat(v2[1] * 100)),
-            255,
-            255,
-            255,
-        ); // white
+    const tri_count = obj.vertex_list.len / 3;
+    for (0..tri_count) |v_idx| {
+        for (0..3) |tri_idx| {
+            const v1_idx = v_idx * 3 + tri_idx;
+            const v2_idx = v_idx * 3 + ((tri_idx + 1) % 3);
+            const v1 = obj.vertex_list[v1_idx];
+            const v2 = obj.vertex_list[v2_idx];
+            const xp = 500;
+            const yp = 400;
+            const scale = 70;
+            softsrv.draw.line(
+                &fb,
+                @as(i32, @intFromFloat(xp + v1[0] * scale)),
+                @as(i32, @intFromFloat(yp + v1[1] * scale)),
+                @as(i32, @intFromFloat(xp + v2[0] * scale)),
+                @as(i32, @intFromFloat(yp + v2[1] * scale)),
+                255,
+                255,
+                255,
+            ); // white
+        }
     }
 
     // time demo
