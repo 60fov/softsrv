@@ -1,14 +1,14 @@
 const std = @import("std");
 
 pub const RateLimiter = struct {
-    ms: i64,
+    us: i64,
     now: i64,
     last: i64,
     accum: i64,
 
     pub fn init(rate: i64) RateLimiter {
         return RateLimiter{
-            .ms = @divTrunc(std.time.us_per_s, rate),
+            .us = @divTrunc(std.time.us_per_s, rate),
             .now = std.time.microTimestamp(),
             .last = std.time.microTimestamp(),
             .accum = 0,
@@ -16,7 +16,7 @@ pub const RateLimiter = struct {
     }
 
     /// update the time accumulator since last update call
-    fn update(self: *RateLimiter) void {
+    pub fn update(self: *RateLimiter) void {
         self.now = std.time.microTimestamp();
         self.accum += self.now - self.last;
         self.last = self.now;
@@ -26,13 +26,13 @@ pub const RateLimiter = struct {
     ///
     /// should only call if you know stepping is safe (see `shouldStep`)
     pub fn step(self: *RateLimiter) void {
-        std.debug.assert(self.accum >= self.ms);
-        self.accum -= self.ms;
+        std.debug.assert(self.accum >= self.us);
+        self.accum -= self.us;
     }
 
     /// is it time to do the thing?
     pub fn shouldStep(self: RateLimiter) bool {
-        return self.accum >= self.ms;
+        return self.accum >= self.us;
     }
 
     /// returns the number of steps that would have passed since last flush call
@@ -59,7 +59,7 @@ pub const RateLimiter = struct {
         // TODO death spiral if update func takes longer than ms
         while (self.shouldStep()) {
             self.step();
-            func(self.ms, ctx);
+            func(self.us, ctx);
         }
     }
 };
