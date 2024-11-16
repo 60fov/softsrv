@@ -27,6 +27,7 @@ pub const Entity = struct {
     pos: Vec(2, f32),
     vel: Vec(2, f32),
     target: ?EntityHandle,
+    parent: ?EntityHandle,
 };
 
 pub const EntityFlags = packed struct(u8) {
