@@ -6,6 +6,7 @@ pub const entity_kind_count = std.enums.values(EntityKind).len;
 pub const EntityKind = enum(u8) {
     player,
     bot,
+    projectile,
 };
 
 // // generic entity?
@@ -24,6 +25,8 @@ pub const Entity = struct {
         .delete = false,
     },
     pos: Vec(2, f32),
+    vel: Vec(2, f32),
+    target: ?EntityHandle,
 };
 
 pub const EntityFlags = packed struct(u8) {
@@ -94,5 +97,9 @@ pub const EntityStorage = struct {
         } else {
             return null;
         }
+    }
+
+    pub fn activeCount(self: EntityStorage) usize {
+        return self.list.len - self.free_list.items.len;
     }
 };
