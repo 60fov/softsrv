@@ -1,9 +1,11 @@
 const std = @import("std");
 const softsrv = @import("softsrv");
+const Attack = @import("../battle_arena.zig").Attack;
 const Vec = softsrv.math.Vector.Vec;
 
 pub const entity_kind_count = std.enums.values(EntityKind).len;
 pub const EntityKind = enum(u8) {
+    none = 0,
     player,
     bot,
     projectile,
@@ -18,22 +20,25 @@ pub const EntityKind = enum(u8) {
 //  }
 
 pub const Entity = struct {
-    handle: EntityHandle = undefined,
+    handle: EntityHandle = .{
+        .id = 0,
+        .gen = 0,
+        .kind = .none,
+    },
 
     flags: EntityFlags = .{
-        .exists = true,
         .delete = false,
     },
-    pos: Vec(2, f32),
-    vel: Vec(2, f32),
-    target: ?EntityHandle,
-    parent: ?EntityHandle,
+    pos: Vec(2, f32) = Vec(2, f32).zero,
+    vel: Vec(2, f32) = Vec(2, f32).zero,
+    attack: Attack = .{},
+    target: ?EntityHandle = null,
+    parent: ?EntityHandle = null,
 };
 
 pub const EntityFlags = packed struct(u8) {
-    exists: bool,
     delete: bool,
-    _unused_bits: u6 = 0,
+    _unused_bits: u7 = 0,
 };
 
 pub const EntityHandle = struct {
@@ -43,7 +48,7 @@ pub const EntityHandle = struct {
     gen: u32,
     kind: EntityKind,
 
-    fn eql(a: EntityHandle, b: EntityHandle) bool {
+    pub fn eql(a: EntityHandle, b: EntityHandle) bool {
         return a.id == b.id and a.gen == b.gen and a.kind == b.kind;
     }
 };
@@ -58,6 +63,7 @@ pub const EntityStorage = struct {
             .list = try allocator.alloc(Entity, max_count),
             .free_list = try std.ArrayListUnmanaged(usize).initCapacity(allocator, max_count),
         };
+        @memset(result.list, .{});
         for (0..max_count) |idx| {
             const id = max_count - idx - 1;
             result.free_list.appendAssumeCapacity(@intCast(id));
@@ -85,6 +91,7 @@ pub const EntityStorage = struct {
         const entity_slot = &self.list[handle.id];
         if (EntityHandle.eql(handle, entity_slot.handle)) {
             entity_slot.handle.gen += 1;
+            entity_slot.handle.kind = .none;
             self.free_list.appendAssumeCapacity(handle.id);
         } else {
             return error.HandleInvalid;
