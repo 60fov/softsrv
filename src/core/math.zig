@@ -73,6 +73,12 @@ pub const Vector = struct {
             pub fn subVecVec(a: Self, b: Self) Self {
                 return Self{ .elem = a.elem - b.elem };
             }
+            pub fn subVecVector(a: Self, b: VectorType) Self {
+                return Self{ .elem = a.elem - b };
+            }
+            pub fn subVecScalar(a: Self, b: Element) Self {
+                return Self{ .elem = a.elem - @as(VectorType, @splat(b)) };
+            }
             pub fn vecNormalize(v: Self) Self {
                 var result = v;
                 result.normalize();

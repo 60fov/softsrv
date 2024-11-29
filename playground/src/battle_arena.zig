@@ -12,6 +12,12 @@ const Vec = softsrv.math.Vector.Vec;
 // [ ] handle projectile target despawns before collision
 // [ ] can be destroyed and respawn with delay
 
+// camera
+// [x] world space -> screen space
+// [ ] world space <- screen space
+// [ ] fx
+// [ ] proper centering logic
+
 // attacks
 // [x] basic implementation
 
@@ -68,7 +74,10 @@ pub const GameState = struct {
 
     framebuffer: softsrv.Framebuffer = undefined,
     entity_storage_list: [entity.entity_kind_count]entity.EntityStorage = undefined,
+    // TODO camera target?
     player_handle: ?entity.EntityHandle = null,
+
+    camera: Camera = .{},
 
     pub fn init(allocator: std.mem.Allocator) !GameState {
         var state = GameState{};
@@ -188,6 +197,7 @@ pub fn update(state: *GameState, us: i64) void {
         };
         state.entity_storage_list[@intFromEnum(entity.EntityKind.player)].add(.player, &player) catch unreachable;
         state.player_handle = player.handle;
+        state.camera.target = state.player_handle;
     }
 
     for (bot_list.list) |*bot| {
@@ -250,42 +260,131 @@ pub fn update(state: *GameState, us: i64) void {
     // draw
     {
         state.framebuffer.clear();
+        softsrv.draw.rect(&state.framebuffer, 0, 0, width, height, 37, 35, 30);
+
+        var camera_pos = Vec(2, f32).zero;
+        if (state.camera.target) |camera_target_handle| {
+            if (state.entityGet(camera_target_handle)) |camera_target| {
+                // const camera_pos = camera_target.pos.addVecVector(@splat(-player_size / 2));
+                camera_pos = camera_target.pos
+                    .subVecVector(.{ width / 2, height / 2 })
+                    .subVecScalar(player_size / 2);
+            }
+        }
+
+        { // ground
+            const tile_size = 100;
+            const tile_gap = 10;
+            const tile_span = tile_size + tile_gap;
+            const tile_rows = height / (tile_span) + 2;
+            const tile_cols = width / (tile_span) + 2;
+            const xt_off: i32 = @mod(@as(i32, @intFromFloat(camera_pos.elem[0])), tile_span);
+            const yt_off: i32 = @mod(@as(i32, @intFromFloat(camera_pos.elem[1])), tile_span);
+            for (0..tile_rows) |idx_tr| {
+                for (0..tile_cols) |idx_tc| {
+                    const xt: i32 = @as(i32, @intCast(idx_tc)) * tile_span - xt_off;
+                    const yt: i32 = @as(i32, @intCast(idx_tr)) * tile_span - yt_off;
+                    softsrv.draw.rect(&state.framebuffer, xt, yt, tile_size, tile_size, 50, 47, 45);
+                }
+            }
+        }
 
         for (player_list.list) |player| {
             if (player.handle.kind == .none) continue;
             {
-                const x: i32 = @intFromFloat(player.pos.elem[0] - player_size / 2);
-                const y: i32 = @intFromFloat(player.pos.elem[1] - player_size / 2);
+                // const x: i32 = @intFromFloat(player.pos.elem[0] - player_size / 2);
+                // const y: i32 = @intFromFloat(player.pos.elem[1] - player_size / 2);
+                const screen_pos = player.pos.subVecVec(camera_pos);
+                const x: i32 = @intFromFloat(screen_pos.elem[0]);
+                const y: i32 = @intFromFloat(screen_pos.elem[1]);
                 softsrv.draw.rect(&state.framebuffer, x, y, player_size, player_size, 255, 255, 255);
             }
 
             if (player.target) |target_handle| {
                 if (state.entityGet(target_handle)) |target| {
-                    const target_size = player_size + 10;
-                    const x: i32 = @intFromFloat(target.pos.elem[0] - target_size / 2);
-                    const y: i32 = @intFromFloat(target.pos.elem[1] - target_size / 2);
-                    softsrv.draw.rect(&state.framebuffer, x, y, target_size, target_size, 255, 0, 200);
+                    // const target_indicator_padding = 5;
+                    const target_size = player_size;
+                    // const x: i32 = @intFromFloat(target.pos.elem[0] - target_size / 2);
+                    // const y: i32 = @intFromFloat(target.pos.elem[1] - target_size / 2);
+                    const screen_pos = target.pos
+                    // .subVecScalar(target_indicator_padding)
+                        .subVecVec(camera_pos);
+                    const x: i32 = @intFromFloat(screen_pos.elem[0]);
+                    const y: i32 = @intFromFloat(screen_pos.elem[1]);
+                    var target_poly = createPoly(4);
+                    drawPoly(&state.framebuffer, &target_poly, x, y, target_size, 0, 255, 255, 255);
+                    // softsrv.draw.rect(&state.framebuffer, x, y, target_size, target_size, 255, 0, 200);
                 }
             }
         }
 
         for (bot_list.list) |bot| {
             if (bot.handle.kind == .none) continue;
-            const x: i32 = @intFromFloat(bot.pos.elem[0] - bot_size / 2);
-            const y: i32 = @intFromFloat(bot.pos.elem[1] - bot_size / 2);
+            // const x: i32 = @intFromFloat(bot.pos.elem[0] - bot_size / 2);
+            // const y: i32 = @intFromFloat(bot.pos.elem[1] - bot_size / 2);
+            const screen_pos = bot.pos.subVecVec(camera_pos);
+            const x: i32 = @intFromFloat(screen_pos.elem[0]);
+            const y: i32 = @intFromFloat(screen_pos.elem[1]);
             softsrv.draw.rect(&state.framebuffer, x, y, bot_size, bot_size, 225, 100, 100);
         }
 
         for (proj_list.list) |proj| {
             if (proj.handle.kind == .none) continue;
-            const x: i32 = @intFromFloat(proj.pos.elem[0] - proj_size / 2);
-            const y: i32 = @intFromFloat(proj.pos.elem[1] - proj_size / 2);
+            // const x: i32 = @intFromFloat(proj.pos.elem[0] - proj_size / 2);
+            // const y: i32 = @intFromFloat(proj.pos.elem[1] - proj_size / 2);
+            const screen_pos = proj.pos.subVecVec(camera_pos);
+            const x: i32 = @intFromFloat(screen_pos.elem[0]);
+            const y: i32 = @intFromFloat(screen_pos.elem[1]);
             softsrv.draw.rect(&state.framebuffer, x, y, proj_size, proj_size, 200, 200, 200);
         }
 
         softsrv.platform.present(&state.framebuffer);
     }
 }
+
+fn createPoly(n: comptime_int) [n]Vec(2, f32) {
+    var poly: [n]Vec(2, f32) = undefined;
+    // const alpha = std.math.pi / @as(f32, @floatFromInt(n));
+    const alpha = 2 * std.math.pi / @as(f32, @floatFromInt(n));
+    for (0..n) |idx| {
+        const theta = alpha * @as(f32, @floatFromInt(idx));
+        const x = @cos(theta);
+        const y = @sin(theta);
+        poly[idx] = Vec(2, f32).init(.{ x, y });
+    }
+    return poly;
+}
+
+const Mat = softsrv.math.Mat;
+fn drawPoly(fb: *softsrv.Framebuffer, points: []Vec(2, f32), x: i32, y: i32, scale: f32, angle: f32, r: u8, g: u8, b: u8) void {
+    var mat = Mat.identity();
+    mat = Mat.mul(mat, Mat.translation(@floatFromInt(x), @floatFromInt(y)));
+    mat = Mat.mul(mat, Mat.scaling(scale, scale));
+    mat = Mat.mul(mat, Mat.rotation(angle));
+    for (1..(points.len + 1)) |idx| {
+        const idx_p = idx % points.len;
+        const p_0 = Mat.mulVec(mat, points[idx - 1].elem);
+        const p_1 = Mat.mulVec(mat, points[idx_p].elem);
+        softsrv.draw.line(
+            fb,
+            @intFromFloat(p_0[0]),
+            @intFromFloat(p_0[1]),
+            @intFromFloat(p_1[0]),
+            @intFromFloat(p_1[1]),
+            r,
+            g,
+            b,
+        );
+    }
+}
+
+const Camera = struct {
+    target: ?entity.EntityHandle = null,
+};
+
+const World = struct {
+    size: u32,
+};
 
 const AttackKind = enum(u8) {
     basic,
