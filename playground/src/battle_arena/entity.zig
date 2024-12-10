@@ -7,8 +7,8 @@ pub const entity_kind_count = std.enums.values(EntityKind).len;
 pub const EntityKind = enum(u8) {
     none = 0,
     player,
-    bot,
     projectile,
+    star,
 };
 
 // // generic entity?
@@ -32,6 +32,7 @@ pub const Entity = struct {
     pos: Vec(2, f32) = Vec(2, f32).zero,
     vel: Vec(2, f32) = Vec(2, f32).zero,
     attack: Attack = .{},
+    size: f32,
     target: ?EntityHandle = null,
     parent: ?EntityHandle = null,
 };

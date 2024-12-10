@@ -43,8 +43,8 @@ const Vec = softsrv.math.Vector.Vec;
 // server
 
 var tick_limiter: softsrv.chrono.RateLimiter = undefined;
-const width = 800;
-const height = 600;
+const width = 1000;
+const height = 750;
 
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
@@ -78,9 +78,12 @@ pub const GameState = struct {
     player_handle: ?entity.EntityHandle = null,
 
     camera: Camera = .{},
+    prng: std.Random.DefaultPrng = undefined,
 
     pub fn init(allocator: std.mem.Allocator) !GameState {
         var state = GameState{};
+
+        state.prng = std.Random.DefaultPrng.init(1);
 
         // TODO learn how to use arena allocators :/
         state.frame_arena_buffer = try allocator.alloc(u8, frame_arena_size);
@@ -88,27 +91,14 @@ pub const GameState = struct {
 
         state.framebuffer = try softsrv.Framebuffer.init(allocator, width, height);
         state.entity_storage_list[@intFromEnum(entity.EntityKind.player)] = try entity.EntityStorage.init(allocator, 1);
-        state.entity_storage_list[@intFromEnum(entity.EntityKind.bot)] = try entity.EntityStorage.init(allocator, 100);
+        state.entity_storage_list[@intFromEnum(entity.EntityKind.star)] = try entity.EntityStorage.init(allocator, 10);
         state.entity_storage_list[@intFromEnum(entity.EntityKind.projectile)] = try entity.EntityStorage.init(allocator, 1000);
 
-        // _ = try state.entitySpawn(.bot, @constCast(@ptrCast(&entity.Entity{
-        //     .pos = Vec(2, f32).init(.{ width / 5, height / 3 }),
-        // })));
-        _ = try state.entitySpawn(.bot, @constCast(@ptrCast(&entity.Entity{
-            .pos = Vec(2, f32).init(.{ width / 2, height / 5 }),
+        _ = try state.entitySpawn(.star, @constCast(@ptrCast(&entity.Entity{
+            .pos = Vec(2, f32).init(.{ width / 5 * 4, height / 2 }),
             .vel = Vec(2, f32).zero,
-            .target = state.player_handle,
             .parent = null,
         })));
-        _ = try state.entitySpawn(.bot, @constCast(@ptrCast(&entity.Entity{
-            .pos = Vec(2, f32).init(.{ width / 5 * 4, height / 5 }),
-            .vel = Vec(2, f32).zero,
-            .target = state.player_handle,
-            .parent = null,
-        })));
-        // _ = try state.entitySpawn(.bot, @constCast(@ptrCast(&entity.Entity{
-        //     .pos = Vec(2, f32).init(.{ width / 5 * 4, height / 3 }),
-        // })));
         return state;
     }
 
@@ -130,18 +120,20 @@ const player_speed = 150;
 const proj_speed = 200;
 const player_size = 20;
 const bot_size = 20;
+const bot_speed = 50;
 const proj_size = 5;
 const player_range = 1000;
+var last_spawn_time: i64 = 0;
+const spawn_timer = 1500 * std.time.us_per_ms;
 
 pub fn update(state: *GameState, us: i64) void {
     var frame_arena = std.heap.ArenaAllocator.init(state.frame_arena_fba.allocator());
-    const allocator = frame_arena.allocator();
+    // const allocator = frame_arena.allocator();
     defer _ = frame_arena.reset(.free_all);
 
     const dt: f32 = @as(f32, @floatFromInt(us)) * 1.0 / std.time.us_per_s;
 
     const player_list = state.entityList(.player);
-    const bot_list = state.entityList(.bot);
     const proj_list = state.entityList(.projectile);
 
     if (state.player_handle) |player_handle| {
@@ -160,27 +152,18 @@ pub fn update(state: *GameState, us: i64) void {
             if (kb.key(.KC_TAB).isJustDown()) {
                 std.debug.print("target selection...\n", .{});
                 // select next target
-                var live_bot_list = softsrv.ds.FixedBufferList(entity.Entity).init(
-                    allocator.alloc(entity.Entity, 100) catch unreachable,
-                );
-                var target_index: ?usize = null;
-                for (bot_list.list) |bot| {
-                    if (bot.handle.kind == .none) continue;
-
-                    std.debug.print("bot handle {}\n", .{bot.handle});
-                    if (player.target) |target| {
-                        if (bot.handle.eql(target)) target_index = live_bot_list.items.len;
-                    }
-                    live_bot_list.append(bot);
-                }
-                if (live_bot_list.items.len > 0) {
-                    const idx = target_index orelse 0;
-                    const new_idx = (idx + 1) % live_bot_list.items.len;
-                    std.debug.print("selecting target @ idx {d}...", .{idx});
-                    player.target = live_bot_list.items[new_idx].handle;
-                } else {
-                    std.debug.print("no targets to select from\n", .{});
-                }
+                // var live_bot_list = softsrv.ds.FixedBufferList(entity.Entity).init(
+                //     allocator.alloc(entity.Entity, 100) catch unreachable,
+                // );
+                // var target_index: ?usize = null;
+                // if (live_bot_list.items.len > 0) {
+                //     const idx = target_index orelse 0;
+                //     const new_idx = (idx + 1) % live_bot_list.items.len;
+                //     std.debug.print("selecting target @ idx {d}...", .{idx});
+                //     player.target = live_bot_list.items[new_idx].handle;
+                // } else {
+                //     std.debug.print("no targets to select from\n", .{});
+                // }
             }
             if (kb.key(.KC_J).isJustDown()) {
                 if (player.target) |target| {
@@ -198,13 +181,6 @@ pub fn update(state: *GameState, us: i64) void {
         state.entity_storage_list[@intFromEnum(entity.EntityKind.player)].add(.player, &player) catch unreachable;
         state.player_handle = player.handle;
         state.camera.target = state.player_handle;
-    }
-
-    for (bot_list.list) |*bot| {
-        if (bot.handle.kind == .none) continue;
-        if (state.player_handle) |player_handle| {
-            bot.attack.attackCast(state, bot.handle, player_handle) catch unreachable;
-        }
     }
 
     for (proj_list.list) |*proj| {
@@ -231,10 +207,6 @@ pub fn update(state: *GameState, us: i64) void {
             if (player.handle.kind == .none or !player.flags.delete) continue;
             state.entityList(player.handle.kind).remove(player.handle) catch unreachable;
         }
-        for (bot_list.list) |*bot| {
-            if (bot.handle.kind == .none or !bot.flags.delete) continue;
-            state.entityList(bot.handle.kind).remove(bot.handle) catch unreachable;
-        }
         for (proj_list.list) |*proj| {
             if (proj.handle.kind == .none or !proj.flags.delete) continue;
             state.entityList(proj.handle.kind).remove(proj.handle) catch unreachable;
@@ -246,10 +218,6 @@ pub fn update(state: *GameState, us: i64) void {
         for (player_list.list) |*player| {
             if (player.handle.kind == .none) continue;
             player.pos.addVec(player.vel.mulVecScalar(dt));
-        }
-        for (bot_list.list) |*bot| {
-            if (bot.handle.kind == .none) continue;
-            bot.pos.addVec(bot.vel.mulVecScalar(dt));
         }
         for (proj_list.list) |*proj| {
             if (proj.handle.kind == .none) continue;
@@ -273,7 +241,7 @@ pub fn update(state: *GameState, us: i64) void {
         }
 
         { // ground
-            const tile_size = 100;
+            const tile_size = 120;
             const tile_gap = 10;
             const tile_span = tile_size + tile_gap;
             const tile_rows = height / (tile_span) + 2;
@@ -316,16 +284,6 @@ pub fn update(state: *GameState, us: i64) void {
                     // softsrv.draw.rect(&state.framebuffer, x, y, target_size, target_size, 255, 0, 200);
                 }
             }
-        }
-
-        for (bot_list.list) |bot| {
-            if (bot.handle.kind == .none) continue;
-            // const x: i32 = @intFromFloat(bot.pos.elem[0] - bot_size / 2);
-            // const y: i32 = @intFromFloat(bot.pos.elem[1] - bot_size / 2);
-            const screen_pos = bot.pos.subVecVec(camera_pos);
-            const x: i32 = @intFromFloat(screen_pos.elem[0]);
-            const y: i32 = @intFromFloat(screen_pos.elem[1]);
-            softsrv.draw.rect(&state.framebuffer, x, y, bot_size, bot_size, 225, 100, 100);
         }
 
         for (proj_list.list) |proj| {
