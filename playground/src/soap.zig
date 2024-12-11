@@ -45,7 +45,7 @@ const Game = struct {
 
     camera: Camera,
     spider: Entity,
-    bug_manager: BugManager,
+    rock_manager: RockManager,
     control_state: struct {
         drag_start: ?Vec(2, f32) = null,
         drag_end: ?Vec(2, f32) = null,
@@ -74,7 +74,7 @@ const Game = struct {
                 .offset = Vec(2, f32).init(.{ Game.width / 2, Game.height / 2 }),
             },
 
-            .bug_manager = try BugManager.init(allocator),
+            .rock_manager = try RockManager.init(allocator),
         };
     }
 
@@ -122,8 +122,8 @@ const Game = struct {
             }
         }
 
-        { // bug
-            try game.bug_manager.tick(game, dt);
+        { // rock
+            try game.rock_manager.tick(game, dt);
         }
 
         { // camera
@@ -140,9 +140,9 @@ const Game = struct {
         { // movement integration
             game.spider.pos.addVec(game.spider.vel.mulVecScalar(dt));
 
-            for (game.bug_manager.bug_list.list) |*bug| {
-                if (!bug.exists()) continue;
-                bug.pos.addVec(bug.vel.mulVecScalar(dt));
+            for (game.rock_manager.rock_list.list) |*rock| {
+                if (!rock.exists()) continue;
+                rock.pos.addVec(rock.vel.mulVecScalar(dt));
             }
         }
     }
@@ -172,16 +172,16 @@ const Game = struct {
             }
         }
 
-        { // draw bug
+        { // draw rock
             var p = poly(4);
-            for (game.bug_manager.bug_list.list) |*bug| {
-                if (!bug.exists()) continue;
-                const size = bug.size.elem[0];
-                const screen_pos = game.camera.worldToScreen(bug.pos);
+            for (game.rock_manager.rock_list.list) |*rock| {
+                if (!rock.exists()) continue;
+                const size = rock.size.elem[0];
+                const screen_pos = game.camera.worldToScreen(rock.pos);
                 const x: i32 = @intFromFloat(screen_pos.elem[0]);
                 const y: i32 = @intFromFloat(screen_pos.elem[1]);
                 // const angle = game.time;
-                drawLineListClosed(&game.framebuffer, p[0..], x, y, size, 0, 255, 255, 0);
+                drawLineListClosed(&game.framebuffer, p[0..], x, y, size, 0, 135, 145, 155);
             }
         }
 
@@ -285,34 +285,35 @@ const Camera = struct {
     }
 };
 
-const BugManager = struct {
+const RockManager = struct {
+    const Self = @This();
     const spawn_dist_despawn = 2000;
     const spawn_dist_min = 500;
     const spawn_dist_max = 1000;
     const spawn_interval = 100 * std.time.ns_per_ms;
-    const max_bug_count = 1000;
+    const max_rock_count = 1000;
 
-    bug_list: EntityList,
+    rock_list: EntityList,
     spawn_timer: std.time.Timer,
 
-    fn init(allocator: std.mem.Allocator) !BugManager {
+    fn init(allocator: std.mem.Allocator) !Self {
         return .{
-            .bug_list = try EntityList.init(allocator, max_bug_count),
+            .rock_list = try EntityList.init(allocator, max_rock_count),
             .spawn_timer = try std.time.Timer.start(),
         };
     }
 
-    fn tick(manager: *BugManager, game: *Game, dt: f32) !void {
+    fn tick(manager: *Self, game: *Game, dt: f32) !void {
         _ = dt;
 
         const random = game.prng.random();
         { // spawning / despawning
             // TODO is it an issue that despawning happens rather marking for deletion then removing end of frame???
             // despawn
-            for (manager.bug_list.list) |*bug| {
-                if (!bug.exists()) continue;
-                const bugToSpiderVec = bug.pos.vecTo(game.spider.pos);
-                if (bugToSpiderVec.len() > spawn_dist_despawn) try manager.bug_list.remove(bug.handle);
+            for (manager.rock_list.list) |*rock| {
+                if (!rock.exists()) continue;
+                const rockToSpiderVec = rock.pos.vecTo(game.spider.pos);
+                if (rockToSpiderVec.len() > spawn_dist_despawn) try manager.rock_list.remove(rock.handle);
             }
 
             // spawn
@@ -327,27 +328,27 @@ const BugManager = struct {
                 });
                 var entity = Entity{
                     .pos = new_pos,
-                    .size = Vec(2, f32).init(.{ 5, 5 }),
+                    .size = Vec(2, f32).init(.{ 10, 10 }),
                 };
-                manager.bug_list.add(.bug, &entity) catch {
-                    std.debug.print("max bug count {}\n", .{manager.bug_list.list.len});
+                manager.rock_list.add(.rock, &entity) catch {
+                    std.debug.print("max rock count {}\n", .{manager.rock_list.list.len});
                 };
             }
         }
         { // movement
-            const bug_speed = 100;
-            for (manager.bug_list.list) |*bug| {
-                if (!bug.exists()) continue;
-                const x = bug.pos.elem[0];
-                const y = bug.pos.elem[1];
-                const noise_sample_0 = noise3D(f32, x, y, game.time);
-                const noise_sample_1 = noise3D(f32, game.time, x, y);
-                std.debug.print("{} {}\n", .{ noise_sample_0, noise_sample_1 });
-                bug.vel = Vec(2, f32).init(.{
-                    noise_sample_0,
-                    noise_sample_1,
-                }).vecNormalize()
-                    .mulVecScalar(bug_speed);
+            // const rock_speed = 100;
+            for (manager.rock_list.list) |*rock| {
+                if (!rock.exists()) continue;
+                // const x = rock.pos.elem[0];
+                // const y = rock.pos.elem[1];
+                // const noise_sample_0 = noise3D(f32, x, y, game.time);
+                // const noise_sample_1 = noise3D(f32, game.time, x, y);
+                // std.debug.print("{} {}\n", .{ noise_sample_0, noise_sample_1 });
+                // rock.vel = Vec(2, f32).init(.{
+                //     noise_sample_0,
+                //     noise_sample_1,
+                // }).vecNormalize()
+                //     .mulVecScalar(rock_speed);
             }
         }
     }
@@ -356,7 +357,8 @@ const BugManager = struct {
 const EntityKind = enum(u8) {
     none,
     spider,
-    bug,
+    rock,
+    // scrap,
     // snake,
 };
 

@@ -40,6 +40,7 @@ pub const Window = struct {
             c.XCB_EVENT_MASK_KEY_RELEASE |
             c.XCB_EVENT_MASK_BUTTON_PRESS |
             c.XCB_EVENT_MASK_BUTTON_RELEASE |
+            c.XCB_EVENT_MASK_POINTER_MOTION |
             c.XCB_EVENT_MASK_EXPOSURE |
             c.XCB_EVENT_MASK_STRUCTURE_NOTIFY |
             c.XCB_EVENT_MASK_VISIBILITY_CHANGE |
@@ -236,6 +237,26 @@ pub const Window = struct {
                         .just = true,
                     };
                     input._keyboard.keys[@intFromEnum(keysym2code(keysym))] = new_state;
+                },
+                .button_release => {
+                    switch (event.button_release.detail) {
+                        1 => input._mouse.button.left = false,
+                        2 => input._mouse.button.middle = false,
+                        3 => input._mouse.button.right = false,
+                        else => {},
+                    }
+                },
+                .button_press => {
+                    switch (event.button_release.detail) {
+                        1 => input._mouse.button.left = true,
+                        2 => input._mouse.button.middle = true,
+                        3 => input._mouse.button.right = true,
+                        else => {},
+                    }
+                },
+                .motion_notify => {
+                    input._mouse.x = @intCast(event.motion_notify.event_x);
+                    input._mouse.y = @intCast(event.motion_notify.event_y);
                 },
                 .expose => {},
                 .destroy_notify => platform.quit(),
