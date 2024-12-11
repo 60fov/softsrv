@@ -64,7 +64,7 @@ pub const EntityStorage = struct {
             .list = try allocator.alloc(Entity, max_count),
             .free_list = try std.ArrayListUnmanaged(usize).initCapacity(allocator, max_count),
         };
-        @memset(result.list, .{});
+        // @memset(result.list, .{});
         for (0..max_count) |idx| {
             const id = max_count - idx - 1;
             result.free_list.appendAssumeCapacity(@intCast(id));

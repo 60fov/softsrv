@@ -69,6 +69,9 @@ pub const Vector = struct {
             pub fn addVecVector(a: Self, b: VectorType) Self {
                 return Self{ .elem = a.elem + b };
             }
+            pub fn addVecScalar(a: Self, b: Element) Self {
+                return Self{ .elem = a.elem + @as(VectorType, @splat(b)) };
+            }
 
             pub fn subVecVec(a: Self, b: Self) Self {
                 return Self{ .elem = a.elem - b.elem };
