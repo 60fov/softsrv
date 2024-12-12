@@ -101,6 +101,9 @@ pub const Vector = struct {
             pub fn addVector(self: *Self, v: VectorType) void {
                 self.elem += v;
             }
+            pub fn addScalar(self: *Self, s: Element) void {
+                self.elem += @splat(s);
+            }
 
             pub fn mulVec(self: *Self, v: Self) void {
                 self.elem *= v.elem;
@@ -108,10 +111,10 @@ pub const Vector = struct {
             pub fn mulVector(self: *Self, v: VectorType) void {
                 self.elem *= v;
             }
-
             pub fn mulScalar(self: *Self, s: Element) void {
                 self.elem *= @splat(s);
             }
+
             pub fn normalize(v: *Self) void {
                 const l2 = v.len2();
                 if (l2 == 0) return;

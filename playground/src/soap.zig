@@ -1,16 +1,29 @@
 const std = @import("std");
 const softsrv = @import("softsrv");
+const fastnoise = @import("soap/fastnoise.zig");
 
 const Vec = softsrv.math.Vector.Vec;
 const Mat = softsrv.math.Mat;
+
+var prng: std.rand.DefaultPrng = undefined;
+var noise: fastnoise.Noise(f32) = undefined;
 
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
     try softsrv.platform.init(allocator, "snakes on a plane", Game.width, Game.height);
 
+    prng = std.Random.DefaultPrng.init(1);
+    noise = fastnoise.Noise(f32){
+        .seed = 1337,
+        .frequency = 0.0001,
+        .noise_type = .simplex,
+        .octaves = 3,
+    };
+
     var frame_limiter = softsrv.chrono.RateLimiter.init(128);
 
     var game: Game = try Game.init(allocator);
+    game.rock_manager.generate();
 
     while (!softsrv.platform.shouldQuit()) {
         // don't hog cpu
@@ -41,11 +54,11 @@ const Game = struct {
     framebuffer: softsrv.Framebuffer = undefined,
     debug: bool = true,
     time: f32 = 0,
-    prng: std.rand.DefaultPrng,
 
     camera: Camera,
     spider: Entity,
     rock_manager: RockManager,
+
     control_state: struct {
         drag_start: ?Vec(2, f32) = null,
         drag_end: ?Vec(2, f32) = null,
@@ -56,8 +69,6 @@ const Game = struct {
         return .{
             .frame_arena_buffer = try allocator.alloc(u8, frame_arena_size),
             .framebuffer = try softsrv.Framebuffer.init(allocator, Game.width, Game.height),
-
-            .prng = std.rand.DefaultPrng.init(1),
 
             .spider = .{
                 .handle = .{
@@ -173,9 +184,22 @@ const Game = struct {
         }
 
         { // draw rock
-            var p = poly(4);
             for (game.rock_manager.rock_list.list) |*rock| {
                 if (!rock.exists()) continue;
+                // const side_count = @trunc(rock.size.elem[0]);
+                var p = poly(6);
+                for (&p) |*point| {
+                    _ = point;
+                    // TODO rock deformation
+                    // const amp = 0.5;
+                    // const offset = noise.genNoise3D(
+                    //     @floatFromInt(rock.handle.id),
+                    //     point.elem[0],
+                    //     point.elem[1],
+                    // ) * amp;
+                    // point.mulScalar((offset + 1) / 2);
+                    // point.addScalar(offset / 2);
+                }
                 const size = rock.size.elem[0];
                 const screen_pos = game.camera.worldToScreen(rock.pos);
                 const x: i32 = @intFromFloat(screen_pos.elem[0]);
@@ -290,8 +314,10 @@ const RockManager = struct {
     const spawn_dist_despawn = 2000;
     const spawn_dist_min = 500;
     const spawn_dist_max = 1000;
-    const spawn_interval = 100 * std.time.ns_per_ms;
-    const max_rock_count = 1000;
+    // const spawn_interval = 100 * std.time.ns_per_ms;
+    const max_rock_count = 10000;
+    const min_rock_size = 5;
+    const max_rock_size = 15;
 
     rock_list: EntityList,
     spawn_timer: std.time.Timer,
@@ -303,52 +329,73 @@ const RockManager = struct {
         };
     }
 
+    fn generate(manager: *Self) void {
+        const random = prng.random();
+
+        const map_size = 10000;
+        for (0..max_rock_count) |idx| {
+            const size = random.float(f32) * (max_rock_size - min_rock_size) + min_rock_size;
+            const pos = Vec(2, f32).init(.{
+                noise.genNoise2D(@floatFromInt(idx * 10), 100.0) * map_size,
+                noise.genNoise2D(@floatFromInt(idx * 10), -100.0) * map_size,
+                // random.float(f32) * 2 - 1 * map_size,
+                // random.float(f32) * 2 - 1 * map_size,
+            });
+            var entity = Entity{
+                .pos = pos,
+                .size = Vec(2, f32).init(.{ size, size }),
+            };
+            manager.rock_list.add(.rock, &entity) catch {
+                std.debug.print("max rock count {}\n", .{manager.rock_list.list.len});
+            };
+        }
+    }
+
     fn tick(manager: *Self, game: *Game, dt: f32) !void {
         _ = dt;
+        _ = game;
 
-        const random = game.prng.random();
+        // const random = game.prng.random();
         { // spawning / despawning
             // TODO is it an issue that despawning happens rather marking for deletion then removing end of frame???
             // despawn
-            for (manager.rock_list.list) |*rock| {
-                if (!rock.exists()) continue;
-                const rockToSpiderVec = rock.pos.vecTo(game.spider.pos);
-                if (rockToSpiderVec.len() > spawn_dist_despawn) try manager.rock_list.remove(rock.handle);
-            }
+            // for (manager.rock_list.list) |*rock| {
+            //     if (!rock.exists()) continue;
+            //     const rockToSpiderVec = rock.pos.vecTo(game.spider.pos);
+            //     if (rockToSpiderVec.len() > spawn_dist_despawn) try manager.rock_list.remove(rock.handle);
+            // }
 
             // spawn
-            if (manager.spawn_timer.read() > spawn_interval) {
-                manager.spawn_timer.reset();
-                const spawn_range = spawn_dist_max - spawn_dist_min;
-                const angle = random.float(f32) * std.math.pi * 2;
-                const dist = random.float(f32) * spawn_range + spawn_dist_min;
-                const new_pos = game.spider.pos.addVecVector(.{
-                    @cos(angle) * dist,
-                    @sin(angle) * dist,
-                });
-                var entity = Entity{
-                    .pos = new_pos,
-                    .size = Vec(2, f32).init(.{ 10, 10 }),
-                };
-                manager.rock_list.add(.rock, &entity) catch {
-                    std.debug.print("max rock count {}\n", .{manager.rock_list.list.len});
-                };
-            }
+            // if (manager.spawn_timer.read() > spawn_interval) {
+            //     manager.spawn_timer.reset();
+            //     const spawn_range = spawn_dist_max - spawn_dist_min;
+            //     const angle = random.float(f32) * std.math.pi * 2;
+            //     const dist = random.float(f32) * spawn_range + spawn_dist_min;
+            //     const new_pos = game.spider.pos.addVecVector(.{
+            //         @cos(angle) * dist,
+            //         @sin(angle) * dist,
+            //     });
+            //     var entity = Entity{
+            //         .pos = new_pos,
+            //         .size = Vec(2, f32).init(.{ 10, 10 }),
+            //     };
+            //     manager.rock_list.add(.rock, &entity) catch {
+            //         std.debug.print("max rock count {}\n", .{manager.rock_list.list.len});
+            //     };
+            // }
         }
         { // movement
-            // const rock_speed = 100;
+            const rock_speed = 100;
             for (manager.rock_list.list) |*rock| {
                 if (!rock.exists()) continue;
-                // const x = rock.pos.elem[0];
-                // const y = rock.pos.elem[1];
-                // const noise_sample_0 = noise3D(f32, x, y, game.time);
-                // const noise_sample_1 = noise3D(f32, game.time, x, y);
-                // std.debug.print("{} {}\n", .{ noise_sample_0, noise_sample_1 });
-                // rock.vel = Vec(2, f32).init(.{
-                //     noise_sample_0,
-                //     noise_sample_1,
-                // }).vecNormalize()
-                //     .mulVecScalar(rock_speed);
+                const x = rock.pos.elem[0];
+                const y = rock.pos.elem[1];
+                // const layer: f32 = @floatFromInt(rock.handle.id % 3 * 10);
+                const angle = noise.genNoise2D(x, y) * 2 * std.math.pi;
+                // TODO rock speed inversely proportional to rock size
+                // const speed = rock_speed * @min(0.5, 1 - rock.size.elem[0] / (max_rock_size - min_rock_size));
+                const speed = rock_speed;
+                rock.vel = Vec(2, f32).fromAngle(angle).mulVecScalar(speed);
             }
         }
     }
@@ -485,3 +532,7 @@ fn drawLineListClosed(fb: *softsrv.Framebuffer, points: []Vec(2, f32), x: i32, y
         );
     }
 }
+
+const IK = struct {
+    // TODO
+};
