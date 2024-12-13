@@ -149,8 +149,13 @@ pub const Vector = struct {
             pub fn len(v: *const Self) Element {
                 return @sqrt(v.len2());
             }
+            /// only works in 2d
             pub fn getAngle(v: *const Self) Element {
                 return std.math.atan2(v.elem[1], v.elem[0]);
+            }
+            /// yeah this can't be good
+            pub fn isZero(v: *const Self) bool {
+                return @reduce(.Or, v.elem == Self.zero.elem);
             }
         };
     }
